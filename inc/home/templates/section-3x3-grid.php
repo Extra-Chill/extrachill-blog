@@ -20,21 +20,21 @@ global $live_reviews_posts, $interviews_posts;
 		<?php
 		if ( ! empty( $interviews_posts ) ) :
 			foreach ( $interviews_posts as $interview_post ) :
-				$permalink = get_permalink( $interview_post->ID );
-				$title     = get_the_title( $interview_post->ID );
-				$date      = get_the_date( '', $interview_post->ID );
+				$permalink  = get_permalink( $interview_post->ID );
+				$item_title = get_the_title( $interview_post->ID );
+				$date       = get_the_date( '', $interview_post->ID );
 				?>
-			<a href="<?php echo esc_url( $permalink ); ?>" class="home-3x3-card home-3x3-card-link" aria-label="<?php echo esc_attr( $title ); ?>">
+			<a href="<?php echo esc_url( $permalink ); ?>" class="home-3x3-card home-3x3-card-link" aria-label="<?php echo esc_attr( $item_title ); ?>">
 				<?php if ( has_post_thumbnail( $interview_post->ID ) ) : ?>
 				<span class="home-3x3-thumb"><?php echo get_the_post_thumbnail( $interview_post->ID, 'medium' ); ?></span>
 				<?php endif; ?>
-				<span class="home-3x3-title"><?php echo esc_html( $title ); ?></span>
+				<span class="home-3x3-title"><?php echo esc_html( $item_title ); ?></span>
 				<span class="home-3x3-meta"><?php echo esc_html( $date ); ?></span>
 			</a>
 				<?php
 			endforeach;
 		else :
-				?>
+			?>
 			<div class="home-3x3-card home-3x3-empty">No interviews yet.</div>
 					<?php endif; ?>
 		</div>
@@ -50,21 +50,21 @@ global $live_reviews_posts, $interviews_posts;
 		<?php
 		if ( ! empty( $live_reviews_posts ) ) :
 			foreach ( $live_reviews_posts as $live_review_post ) :
-				$permalink = get_permalink( $live_review_post->ID );
-				$title     = get_the_title( $live_review_post->ID );
-				$date      = get_the_date( '', $live_review_post->ID );
+				$permalink  = get_permalink( $live_review_post->ID );
+				$item_title = get_the_title( $live_review_post->ID );
+				$date       = get_the_date( '', $live_review_post->ID );
 				?>
-			<a href="<?php echo esc_url( $permalink ); ?>" class="home-3x3-card home-3x3-card-link" aria-label="<?php echo esc_attr( $title ); ?>">
+			<a href="<?php echo esc_url( $permalink ); ?>" class="home-3x3-card home-3x3-card-link" aria-label="<?php echo esc_attr( $item_title ); ?>">
 				<?php if ( has_post_thumbnail( $live_review_post->ID ) ) : ?>
 				<span class="home-3x3-thumb"><?php echo get_the_post_thumbnail( $live_review_post->ID, 'medium' ); ?></span>
 				<?php endif; ?>
-				<span class="home-3x3-title"><?php echo esc_html( $title ); ?></span>
+				<span class="home-3x3-title"><?php echo esc_html( $item_title ); ?></span>
 				<span class="home-3x3-meta"><?php echo esc_html( $date ); ?></span>
 			</a>
 				<?php
 			endforeach;
 		else :
-				?>
+			?>
 			<div class="home-3x3-card home-3x3-empty">No reviews yet.</div>
 					<?php endif; ?>
 		</div>

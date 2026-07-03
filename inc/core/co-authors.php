@@ -39,7 +39,8 @@ if ( function_exists( 'get_coauthors' ) ) {
 	add_action( 'rest_api_init', 'extrachill_blog_register_coauthors' );
 
 	function extrachill_blog_register_coauthors() {
-		register_rest_field( 'post',
+		register_rest_field(
+			'post',
 			'coauthor_profiles',
 			array(
 				'get_callback'    => 'extrachill_blog_get_coauthors',
@@ -75,16 +76,16 @@ if ( function_exists( 'get_coauthors' ) ) {
 		if ( ! empty( $coauthors ) ) {
 			foreach ( $coauthors as $author ) {
 				$authors[] = array(
-					'display_name' => $author->display_name,
-					'user_nicename' => $author->user_nicename
+					'display_name'  => $author->display_name,
+					'user_nicename' => $author->user_nicename,
 				);
 			}
 		} else {
 			$default_author = get_userdata( get_post_field( 'post_author', $object['id'] ) );
 			if ( $default_author ) {
 				$authors[] = array(
-					'display_name' => $default_author->display_name,
-					'user_nicename' => $default_author->user_nicename
+					'display_name'  => $default_author->display_name,
+					'user_nicename' => $default_author->user_nicename,
 				);
 			}
 		}

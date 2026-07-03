@@ -54,6 +54,7 @@ function extrachill_blog_login_register_cta() {
 	}
 
 	echo '<h3>' . esc_html__( 'Login or Register to Comment', 'extrachill-blog' ) . '</h3>';
-	echo do_blocks( '<!-- wp:extrachill/login-register /-->' );
+	// do_blocks() returns trusted, core-rendered block markup that must not be escaped.
+	echo do_blocks( '<!-- wp:extrachill/login-register /-->' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 }
 add_action( 'extrachill_before_comments_template', 'extrachill_blog_login_register_cta' );
