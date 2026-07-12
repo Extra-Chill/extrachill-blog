@@ -82,7 +82,7 @@ function extrachill_blog_get_wire_latest( $limit = 4 ) {
 		$items[] = array(
 			'title'     => get_the_title( $wire_post ),
 			'url'       => get_permalink( $wire_post ),
-			'time_diff' => human_time_diff( get_post_time( 'U', true, $wire_post ), time() ),
+			'time_diff' => human_time_diff( (int) get_post_time( 'U', true, $wire_post ), time() ),
 		);
 	}
 

@@ -62,17 +62,20 @@ $events_url      = function_exists( 'ec_get_site_url' ) ? ec_get_site_url( 'even
 		if ( ! empty( $latest_blog_posts ) ) :
 			$story_index = 0;
 			foreach ( $latest_blog_posts as $story_post ) :
-				$permalink = get_permalink( $story_post->ID );
-				$title     = get_the_title( $story_post->ID );
-				$date      = get_the_date( '', $story_post->ID );
+				$story_permalink = get_permalink( $story_post->ID );
+				if ( false === $story_permalink ) {
+					$story_permalink = '';
+				}
+				$story_title = (string) get_the_title( $story_post->ID );
+				$story_date  = (string) get_the_date( '', $story_post->ID );
 				++$story_index;
 				?>
-			<a href="<?php echo esc_url( $permalink ); ?>" class="home-3x3-card home-3x3-card-link" aria-label="<?php echo esc_attr( $title ); ?>">
+			<a href="<?php echo esc_url( $story_permalink ); ?>" class="home-3x3-card home-3x3-card-link" aria-label="<?php echo esc_attr( $story_title ); ?>">
 				<?php if ( 1 === $story_index && has_post_thumbnail( $story_post->ID ) ) : ?>
 				<span class="home-3x3-thumb"><?php echo get_the_post_thumbnail( $story_post->ID, 'medium' ); ?></span>
 				<?php endif; ?>
-				<span class="home-3x3-title"><?php echo esc_html( $title ); ?></span>
-				<span class="home-3x3-meta"><?php echo esc_html( $date ); ?></span>
+				<span class="home-3x3-title"><?php echo esc_html( $story_title ); ?></span>
+				<span class="home-3x3-meta"><?php echo esc_html( $story_date ); ?></span>
 			</a>
 				<?php
 			endforeach;
