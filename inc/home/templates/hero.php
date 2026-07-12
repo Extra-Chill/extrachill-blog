@@ -19,11 +19,15 @@ if ( is_user_logged_in() ) {
 $hero_stats = extrachill_blog_get_hero_stats();
 
 $hero_stat_labels = array(
-	'events_count'      => __( 'upcoming events', 'extrachill-blog' ),
-	'events_cities'     => __( 'cities', 'extrachill-blog' ),
-	'total_members'     => __( 'members', 'extrachill-blog' ),
-	'artist_profiles'   => __( 'artists', 'extrachill-blog' ),
+	'events_count'    => __( 'upcoming events', 'extrachill-blog' ),
+	'events_cities'   => __( 'cities', 'extrachill-blog' ),
+	'total_members'   => __( 'members', 'extrachill-blog' ),
+	'artist_profiles' => __( 'artists', 'extrachill-blog' ),
 );
+
+$events_url    = function_exists( 'ec_get_site_url' ) ? ec_get_site_url( 'events' ) : 'https://events.extrachill.com';
+$community_url = function_exists( 'ec_get_site_url' ) ? ec_get_site_url( 'community' ) : 'https://community.extrachill.com';
+$artist_url    = function_exists( 'ec_get_site_url' ) ? ec_get_site_url( 'artist' ) : 'https://artist.extrachill.com';
 ?>
 <div class="full-width-breakout ec-edge-shell">
 <section id="hero-section">
@@ -61,17 +65,17 @@ $hero_stat_labels = array(
 	<?php endif; ?>
 
 	<div class="hero-buttons-container">
-		<a href="<?php echo esc_url( ec_get_site_url( 'events' ) ); ?>"
+		<a href="<?php echo esc_url( $events_url ); ?>"
 			class="button-1 button-medium">
 			<?php esc_html_e( 'Live Music Calendar', 'extrachill-blog' ); ?>
 		</a>
 
-		<a href="<?php echo esc_url( ec_get_site_url( 'community' ) ); ?>"
+		<a href="<?php echo esc_url( $community_url ); ?>"
 			class="button-2 button-medium">
 			<?php esc_html_e( 'Community', 'extrachill-blog' ); ?>
 		</a>
 
-		<a href="<?php echo esc_url( ec_get_site_url( 'artist' ) ); ?>"
+		<a href="<?php echo esc_url( $artist_url ); ?>"
 			class="button-3 button-medium">
 			<?php esc_html_e( 'Artist Platform', 'extrachill-blog' ); ?>
 		</a>

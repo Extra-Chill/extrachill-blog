@@ -74,14 +74,12 @@ function extrachill_blog_enqueue_home_styles() {
 
 	$css_path = EXTRACHILL_BLOG_PLUGIN_DIR . 'assets/css/home.css';
 	if ( file_exists( $css_path ) ) {
-		$version = filemtime( $css_path );
-		$version = false === $version ? null : (string) $version;
-
+		$css_version = filemtime( $css_path );
 		wp_enqueue_style(
 			'extrachill-blog-home',
 			EXTRACHILL_BLOG_PLUGIN_URL . 'assets/css/home.css',
 			array( 'extrachill-root' ),
-			$version
+			false !== $css_version ? (string) $css_version : false
 		);
 	}
 }
