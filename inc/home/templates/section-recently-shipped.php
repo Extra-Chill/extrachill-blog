@@ -18,15 +18,15 @@ if ( empty( $recently_shipped['releases'] ) ) {
 	return;
 }
 
-$releases     = $recently_shipped['releases'];
-$repos_active = $recently_shipped['repos_active'];
-$repos_total  = $recently_shipped['repos_total'];
+$releases                = $recently_shipped['releases'];
+$repos_active_this_month = $recently_shipped['repos_active_this_month'];
+$repos_total             = $recently_shipped['repos_total'];
 ?>
 <div class="full-width-breakout ec-edge-shell">
 	<div class="home-shipped-strip">
 		<div class="home-shipped-header">
 			<span class="home-shipped-label"><?php esc_html_e( 'Recently Shipped', 'extrachill-blog' ); ?></span>
-			<span class="home-shipped-kicker"><?php esc_html_e( 'the open-source platform in motion', 'extrachill-blog' ); ?></span>
+			<span class="home-shipped-kicker"><?php esc_html_e( 'recent releases from active repositories', 'extrachill-blog' ); ?></span>
 		</div>
 		<div class="home-shipped-list">
 			<?php foreach ( $releases as $release ) : ?>
@@ -62,8 +62,8 @@ $repos_total  = $recently_shipped['repos_total'];
 				<?php
 				printf(
 					/* translators: 1: number of repos active this month, 2: total repo count */
-					esc_html__( '%1$d of %2$d repos shipped this month', 'extrachill-blog' ),
-					absint( $repos_active ),
+					esc_html__( '%1$d of %2$d repos active this month', 'extrachill-blog' ),
+					absint( $repos_active_this_month ),
 					absint( $repos_total )
 				);
 				?>

@@ -82,7 +82,7 @@ function extrachill_blog_get_wire_latest( $limit = 4 ) {
 		$items[] = array(
 			'title'     => get_the_title( $wire_post ),
 			'url'       => get_permalink( $wire_post ),
-			'time_diff' => human_time_diff( get_post_time( 'U', true, $wire_post ), time() ),
+			'time_diff' => human_time_diff( (int) get_post_time( 'U', true, $wire_post ), time() ),
 		);
 	}
 
@@ -95,32 +95,15 @@ function extrachill_blog_get_wire_latest( $limit = 4 ) {
  * Get the "Recently Shipped" homepage payload — recent GitHub releases
  * across the whole Extra-Chill org plus a monthly-activity stat.
  *
- * Cached in a 1-hour transient. On any API failure, falls back to a
- * long-TTL backup transient holding the last-good payload. If neither
- * is available, returns an empty array so the section renders nothing.
+ * Reads only the long-TTL last-good transient populated by the scheduled
+ * warmer. If no payload is available, the section renders nothing.
  *
- * @return array{releases: array[], repos_active: int, repos_total: int}|array{}
+ * @return array{releases: array[], repos_active_this_month: int, repos_total: int}|array{}
  */
 function extrachill_blog_get_recently_shipped() {
-	$cache_key  = 'extrachill_blog_recently_shipped';
-	$backup_key = 'extrachill_blog_recently_shipped_backup';
-
-	$cached = get_transient( $cache_key );
-	if ( is_array( $cached ) && ! empty( $cached ) ) {
-		return $cached;
-	}
-
-	$payload = extrachill_blog_fetch_recently_shipped();
-
-	if ( ! empty( $payload ) ) {
-		set_transient( $cache_key, $payload, HOUR_IN_SECONDS );
-		set_transient( $backup_key, $payload, WEEK_IN_SECONDS );
-		return $payload;
-	}
-
-	$backup = get_transient( $backup_key );
-	if ( is_array( $backup ) && ! empty( $backup ) ) {
-		return $backup;
+	$last_good = get_transient( 'extrachill_blog_recently_shipped_last_good' );
+	if ( is_array( $last_good ) && ! empty( $last_good ) ) {
+		return $last_good;
 	}
 
 	return array();
@@ -129,12 +112,12 @@ function extrachill_blog_get_recently_shipped() {
 /**
  * Fetch and assemble the Recently Shipped payload from the GitHub API.
  *
- * Two calls max: (1) list org repos sorted by pushed_at to compute the
- * monthly-activity stat and find recently-active repos, (2) latest
- * release for each of the ~10 most recently pushed repos. Never loops
- * over the full repo set.
+ * The scheduled warmer makes one org request plus up to ten release requests:
+ * the latest release for each of the ten most recently active repositories.
+ * The resulting rows are release rows from that candidate set, not a complete
+ * ranking of the newest releases across the organization.
  *
- * @return array{releases: array[], repos_active: int, repos_total: int}|array{}
+ * @return array{releases: array[], repos_active_this_month: int, repos_total: int}|array{}
  */
 function extrachill_blog_fetch_recently_shipped() {
 	$repos_response = wp_remote_get(
@@ -155,13 +138,13 @@ function extrachill_blog_fetch_recently_shipped() {
 		return array();
 	}
 
-	$repos_total     = count( $repos );
-	$thirty_days_ago = time() - ( 30 * DAY_IN_SECONDS );
-	$repos_active    = 0;
+	$repos_total             = count( $repos );
+	$month_start             = strtotime( gmdate( 'Y-m-01 00:00:00' ) . ' UTC' );
+	$repos_active_this_month = 0;
 
 	foreach ( $repos as $repo ) {
-		if ( ! empty( $repo['pushed_at'] ) && strtotime( $repo['pushed_at'] ) >= $thirty_days_ago ) {
-			++$repos_active;
+		if ( ! empty( $repo['pushed_at'] ) && strtotime( $repo['pushed_at'] ) >= $month_start ) {
+			++$repos_active_this_month;
 		}
 	}
 
@@ -217,9 +200,9 @@ function extrachill_blog_fetch_recently_shipped() {
 	$releases = array_slice( $releases, 0, 4 );
 
 	return array(
-		'releases'     => $releases,
-		'repos_active' => $repos_active,
-		'repos_total'  => $repos_total,
+		'releases'                => $releases,
+		'repos_active_this_month' => $repos_active_this_month,
+		'repos_total'             => $repos_total,
 	);
 }
 
@@ -234,11 +217,14 @@ function extrachill_blog_fetch_recently_shipped() {
  * @return string Plain-text summary, empty string if nothing usable.
  */
 function extrachill_blog_summarize_release_body( $body ) {
-	if ( ! is_string( $body ) || '' === trim( $body ) ) {
+	if ( '' === trim( $body ) ) {
 		return '';
 	}
 
 	$lines = preg_split( '/\r\n|\r|\n/', $body );
+	if ( false === $lines ) {
+		return '';
+	}
 
 	foreach ( $lines as $line ) {
 		$line = trim( $line );
