@@ -25,10 +25,9 @@ function extrachill_blog_render_homepage() {
 	?>
 	<div class="home-network-grid">
 		<?php
-		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-artist-platform.php';
 		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-community.php';
+		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-artist-platform.php';
 		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-events.php';
-		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-wire.php';
 		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-docs.php';
 		include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-about.php';
 		?>
