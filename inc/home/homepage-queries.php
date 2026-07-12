@@ -105,7 +105,7 @@ function extrachill_blog_get_hero_stats() {
 		return array();
 	}
 
-	$keys  = array( 'events_count', 'events_cities', 'community_members', 'artist_profiles' );
+	$keys  = array( 'events_count', 'events_cities', 'total_members', 'artist_profiles' );
 	$stats = ec_get_network_stats( $keys );
 
 	if ( ! is_array( $stats ) ) {

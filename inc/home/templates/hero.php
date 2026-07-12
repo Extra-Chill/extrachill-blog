@@ -21,7 +21,7 @@ $hero_stats = extrachill_blog_get_hero_stats();
 $hero_stat_labels = array(
 	'events_count'      => __( 'upcoming events', 'extrachill-blog' ),
 	'events_cities'     => __( 'cities', 'extrachill-blog' ),
-	'community_members' => __( 'members', 'extrachill-blog' ),
+	'total_members'     => __( 'members', 'extrachill-blog' ),
 	'artist_profiles'   => __( 'artists', 'extrachill-blog' ),
 );
 ?>
