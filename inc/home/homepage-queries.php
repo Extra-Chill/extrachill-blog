@@ -89,9 +89,11 @@ function extrachill_blog_request_location_event_counts( $query ) {
 /**
  * Read the authenticated user's canonical default event location.
  *
- * The preference is supplied by extrachill-users#176 through the existing
- * self-only settings Ability. Until that dependency is available, or whenever
- * its result is unavailable, this intentionally fails open to global markets.
+ * The preference is supplied by extrachill-users#179 through the existing
+ * self-only settings Ability. Its resolved object is canonicalized by the
+ * Events-owned extrachill/events-locations Ability; this consumer does not
+ * repeat taxonomy validation. Unavailable or malformed data intentionally
+ * fails open to global markets.
  *
  * @return string Canonical location slug, or an empty string.
  */
@@ -120,7 +122,7 @@ function extrachill_blog_get_default_event_location_slug() {
 		return '';
 	}
 
-	return sanitize_title( $location['slug'] );
+	return (string) $location['slug'];
 }
 
 /**

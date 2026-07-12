@@ -36,10 +36,6 @@ function is_wp_error() {
 	return false;
 }
 
-function sanitize_title( $slug ) {
-	return strtolower( trim( preg_replace( '/[^a-z0-9]+/i', '-', $slug ), '-' ) );
-}
-
 require_once dirname( __DIR__ ) . '/inc/home/homepage-queries.php';
 
 function assert_same( $expected, $actual, $message ) {
@@ -91,9 +87,9 @@ assert_same( '', extrachill_blog_get_default_event_location_slug(), 'Missing dep
 
 $test_settings = array(
 	'default_event_location' => array(
-		'slug' => 'New York, NY',
+		'slug' => 'new-york-city',
 	),
 );
-assert_same( 'new-york-ny', extrachill_blog_get_default_event_location_slug(), 'Canonical preference slug should be sanitized.' );
+assert_same( 'new-york-city', extrachill_blog_get_default_event_location_slug(), 'Resolved canonical preference slug should pass through unchanged.' );
 
 fwrite( STDOUT, "Homepage event-market tests passed.\n" );
