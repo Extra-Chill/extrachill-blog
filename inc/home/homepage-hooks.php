@@ -22,6 +22,7 @@ function extrachill_blog_render_homepage() {
 	include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/hero.php';
 	include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-3x3-grid.php';
 	include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-search.php';
+	include EXTRACHILL_BLOG_PLUGIN_DIR . 'inc/home/templates/section-recently-shipped.php';
 	?>
 	<div class="home-network-grid">
 		<?php
