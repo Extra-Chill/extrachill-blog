@@ -79,16 +79,16 @@ function contextualize( $terms, $context = 'content' ) {
 }
 
 $artist = contextualize( array( 'artist' => array( new WP_Term( 'Kid Lake' ) ) ) );
-assert_same( 'Keep up with Kid Lake', $artist['heading'], 'Artist terms should set artist copy.' );
-assert_same( 'Get the latest stories about Kid Lake, plus independent music coverage from Extra Chill.', $artist['description'], 'Artist description should use the artist name.' );
+assert_same( 'Into Kid Lake?', $artist['heading'], 'Artist terms should set artist copy.' );
+assert_same( 'Get independent music stories, news, and events from Extra Chill.', $artist['description'], 'Artist context should not promise artist-specific delivery.' );
 
 $festival = contextualize( array( 'festival' => array( new WP_Term( 'High Water' ) ) ) );
-assert_same( 'Stay in the High Water loop', $festival['heading'], 'Festival terms should set festival copy.' );
-assert_same( 'Get High Water news and festival updates, plus the best of Extra Chill.', $festival['description'], 'Festival description should use the festival name.' );
+assert_same( 'Following High Water?', $festival['heading'], 'Festival terms should set festival copy.' );
+assert_same( 'Get independent music stories, news, and events from Extra Chill.', $festival['description'], 'Festival context should not promise festival-specific delivery.' );
 
 $location = contextualize( array( 'location' => array( new WP_Term( 'Charleston' ) ) ) );
-assert_same( 'Stay connected to the Charleston music scene', $location['heading'], 'Location terms should set location copy.' );
-assert_same( 'Get music news from Charleston and beyond, delivered by Extra Chill.', $location['description'], 'Location description should use the location name.' );
+assert_same( 'Into the Charleston music scene?', $location['heading'], 'Location terms should set location copy.' );
+assert_same( 'Get independent music stories, news, and events from Extra Chill.', $location['description'], 'Location context should not promise location-specific delivery.' );
 
 $mixed = contextualize(
 	array(
@@ -97,7 +97,7 @@ $mixed = contextualize(
 		'artist'   => array( new WP_Term( 'Kid Lake' ) ),
 	)
 );
-assert_same( 'Keep up with Kid Lake', $mixed['heading'], 'Artist copy should win the mixed-term priority.' );
+assert_same( 'Into Kid Lake?', $mixed['heading'], 'Artist copy should win the mixed-term priority.' );
 assert_same( array( 'orderby' => 'name', 'order' => 'ASC' ), $test_term_args['artist'], 'Entity terms should use deterministic name ordering.' );
 
 $original           = newsletter_args();
