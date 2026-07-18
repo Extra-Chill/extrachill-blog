@@ -17,12 +17,15 @@ defined( 'ABSPATH' ) || exit;
  * @return bool Whether the current queried page is the path.
  */
 function extrachill_blog_dispatch_is_page( $path ) {
-	if ( ! is_page() ) {
+	if ( ! is_page() || ! isset( EXTRACHILL_BLOG_DISPATCH_PAGES[ $path ] ) ) {
 		return false;
 	}
 	$current = get_queried_object();
-	$target  = get_page_by_path( $path, OBJECT, 'page' );
-	return $current instanceof WP_Post && $target instanceof WP_Post && (int) $current->ID === (int) $target->ID;
+	$owned   = (array) get_option( EXTRACHILL_BLOG_DISPATCH_PAGES_OPTION, array() );
+	return $current instanceof WP_Post
+		&& isset( $owned[ $path ] )
+		&& (int) $current->ID === (int) $owned[ $path ]
+		&& EXTRACHILL_BLOG_DISPATCH_PAGES[ $path ]['sentinel'] === $current->post_content;
 }
 
 /**
@@ -52,7 +55,8 @@ function extrachill_blog_dispatch_editor_post() {
 		$resolved = new WP_Error( 'artist_dispatch_not_found', __( 'That Artist Dispatch draft is unavailable.', 'extrachill-blog' ), array( 'status' => 404 ) );
 		return $resolved;
 	}
-	if ( 'draft' !== $post->post_status || ! current_user_can( 'edit_post', $post_id ) || ! extrachill_blog_dispatch_is_approved() ) {
+	$access = extrachill_blog_dispatch_access();
+	if ( 'draft' !== $post->post_status || ! current_user_can( 'edit_post', $post_id ) || ! extrachill_blog_dispatch_is_approved( $access ) || ! extrachill_blog_dispatch_has_current_terms( $access ) ) {
 		$resolved = new WP_Error( 'artist_dispatch_locked', __( 'This Artist Dispatch is not available for editing.', 'extrachill-blog' ), array( 'status' => 403 ) );
 		return $resolved;
 	}
@@ -166,7 +170,6 @@ function extrachill_blog_dispatch_enqueue_assets() {
 				'restRoot'     => esc_url_raw( rest_url() ),
 				'writeUrl'     => home_url( '/submit/write/' ),
 				'termsVersion' => EXTRACHILL_BLOG_DISPATCH_TERMS_VERSION,
-				'accessEvent'  => extrachill_blog_dispatch_event_name( 'access_requested' ),
 			)
 		);
 	}
@@ -359,6 +362,9 @@ function extrachill_blog_dispatch_state_html() {
 		case 'approved':
 			if ( ! extrachill_blog_dispatch_is_approved( $access ) ) {
 				return '<section class="artist-dispatch-state is-closed"><h2>' . esc_html__( 'Writing access unavailable', 'extrachill-blog' ) . '</h2><p>' . esc_html__( 'Your approval is recorded, but the required native writing role is unavailable. An editor has been asked to review it.', 'extrachill-blog' ) . '</p></section>';
+			}
+			if ( ! extrachill_blog_dispatch_has_current_terms( $access ) ) {
+				return '<section class="artist-dispatch-state is-closed"><h2>' . esc_html__( 'Current terms acceptance required', 'extrachill-blog' ) . '</h2><p>' . esc_html__( 'The audited Artist Dispatch request does not include the current guidelines and affiliation acknowledgement. Submit a current request before writing.', 'extrachill-blog' ) . '</p></section>';
 			}
 			if ( ! extrachill_blog_dispatch_has_editor_dependency() ) {
 				return '<section class="artist-dispatch-state is-closed"><h2>' . esc_html__( 'Writing editor unavailable', 'extrachill-blog' ) . '</h2><p>' . esc_html__( 'Blocks Everywhere 3.6.0 or newer must be active before a new Artist Dispatch can be started.', 'extrachill-blog' ) . '</p></section>';

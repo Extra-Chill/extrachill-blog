@@ -7,3 +7,11 @@ Do not have plugin code rewrite the existing `/contribute/` page. During the con
 > **Writers:** Active artists and music participants can build trust in the Extra Chill Community, then request access to submit a transparent first-person Artist Dispatch for editorial review. [Learn about the Artist Dispatch pathway](/submit/).
 
 The Developers, Software Testers, and Community Builders sections remain unchanged.
+
+## Editor Recovery Dependency
+
+Blocks Everywhere 3.6 mounts WordPress core's `LocalAutosaveMonitor`, but this integration has not proven a visible local-recovery notice or restore control in the embedded shell. This PR therefore promises native server autosave and real frontend preview only. Visible local recovery remains an upstream Blocks Everywhere requirement and must not be listed as launch acceptance until its UI is verified in an integrated browser test.
+
+## Integration Test
+
+`tests/integration/artist-dispatch-rest.php` drives the actual core posts and autosaves controllers and must run only in a disposable WordPress sandbox with Extra Chill Blog active and without the Users or Artist Platform plugins. The script installs deterministic doubles for those plugins' public contracts, creates temporary users/posts, exercises the security boundaries, and cleans up. It must never run against production.

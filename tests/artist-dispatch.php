@@ -39,10 +39,17 @@ $GLOBALS['dispatch_query_count'] = 0;
 $GLOBALS['dispatch_logged_in'] = true;
 $GLOBALS['dispatch_ability'] = null;
 $GLOBALS['dispatch_caps'] = array( 'edit_posts' => true, 'submit_for_review' => true );
+$GLOBALS['dispatch_options'] = array();
 
 function add_action() {}
 function add_filter() {}
+function apply_filters($hook, $value) { return $value; }
 function register_post_meta() {}
+function get_option($key, $default = false) { return array_key_exists($key, $GLOBALS['dispatch_options']) ? $GLOBALS['dispatch_options'][$key] : $default; }
+function update_option($key, $value) { $GLOBALS['dispatch_options'][$key] = $value; return true; }
+function add_option($key, $value) { if (array_key_exists($key, $GLOBALS['dispatch_options'])) return false; $GLOBALS['dispatch_options'][$key] = $value; return true; }
+function delete_option($key) { unset($GLOBALS['dispatch_options'][$key]); return true; }
+function sanitize_key($value) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower($value)); }
 function __($text) { return $text; }
 function esc_html__($text) { return $text; }
 function esc_html($text) { return htmlspecialchars($text, ENT_QUOTES); }
@@ -53,6 +60,7 @@ function home_url($path = '') { return 'https://extrachill.com' . $path; }
 function wp_login_url($url) { return 'https://extrachill.com/login?to=' . rawurlencode($url); }
 function ec_get_site_url() { return 'https://community.extrachill.com'; }
 function ec_get_blog_id($key) { return 'artist' === $key ? 4 : 1; }
+function get_current_blog_id() { return 1; }
 function switch_to_blog() {}
 function restore_current_blog() {}
 function get_post($post_id) {
@@ -78,7 +86,7 @@ function get_page_by_path($path) {
 	return isset($GLOBALS['dispatch_pages'][$key]) ? $GLOBALS['dispatch_pages'][$key] : null;
 }
 function wp_insert_post($data) {
-	$post = (object) array('ID' => count($GLOBALS['dispatch_pages']) + 1);
+	$post = (object) array('ID' => count($GLOBALS['dispatch_pages']) + 1, 'post_content' => $data['post_content'], 'post_status' => $data['post_status'], 'post_parent' => $data['post_parent']);
 	$GLOBALS['dispatch_pages'][$data['post_name']] = $post;
 	return $post->ID;
 }
@@ -106,9 +114,13 @@ function check($label, $condition) {
 
 extrachill_blog_provision_submit_pages();
 check('provisions all three native page shells', 3 === count($GLOBALS['dispatch_pages']));
+check('provisions feature pages as drafts', 'draft' === $GLOBALS['dispatch_pages']['submit']->post_status && 'draft' === $GLOBALS['dispatch_pages']['write']->post_status);
 $first_pages = $GLOBALS['dispatch_pages'];
 extrachill_blog_provision_submit_pages();
 check('provisioning is idempotent and preserves existing pages', $first_pages === $GLOBALS['dispatch_pages']);
+$GLOBALS['dispatch_pages']['submit']->post_content = 'Human content';
+check('human-edited page is no longer claimed or overwritten', 0 === extrachill_blog_provision_submit_page('submit', 'Artist Dispatch', EXTRACHILL_BLOG_DISPATCH_PAGES['submit']['sentinel']));
+$GLOBALS['dispatch_pages']['submit']->post_content = EXTRACHILL_BLOG_DISPATCH_PAGES['submit']['sentinel'];
 
 $GLOBALS['dispatch_logged_in'] = false;
 check('logged-out cohort has login and community actions', false !== strpos(extrachill_blog_dispatch_state_html(), 'Join the community'));
@@ -129,7 +141,7 @@ $eligible['eligibility']['eligible'] = true;
 $eligible['eligibility']['criteria']['claimed_artist'] = array('passed' => true, 'artist_ids' => array(22));
 $GLOBALS['dispatch_ability'] = $eligible;
 check('eligible cohort consumes canonical artist IDs from owner contract', false !== strpos(extrachill_blog_dispatch_state_html(), 'value="22"'));
-$GLOBALS['dispatch_ability'] = array_merge($eligible, array('status' => 'approved', 'artist_id' => 22));
+$GLOBALS['dispatch_ability'] = array_merge($eligible, array('status' => 'approved', 'artist_id' => 22, 'terms_acknowledged' => true, 'terms_version' => EXTRACHILL_BLOG_DISPATCH_TERMS_VERSION));
 check('approved cohort renders native post dashboard', false !== strpos(extrachill_blog_dispatch_state_html(), 'New Artist Dispatch'));
 $GLOBALS['dispatch_ability']['eligibility']['policy']['pilot_enabled'] = false;
 check('disabled pilot fails closed for approved state', false !== strpos(extrachill_blog_dispatch_state_html(), 'not accepting requests'));
@@ -142,20 +154,16 @@ check('text and approved embed policy passes', true === extrachill_blog_dispatch
 check('media block is rejected server-side', 'artist_dispatch_disallowed_block' === extrachill_blog_dispatch_validate_blocks(array(array('blockName' => 'core/image')))->get_error_code());
 check('unsupported embed host is rejected server-side', 'artist_dispatch_disallowed_embed' === extrachill_blog_dispatch_validate_blocks(array(array('blockName' => 'core/embed', 'attrs' => array('url' => 'https://example.org/video'))))->get_error_code());
 check('unstructured classic HTML is rejected server-side', 'artist_dispatch_unstructured_content' === extrachill_blog_dispatch_validate_blocks(array(array('blockName' => null, 'innerHTML' => '<p>raw</p>')))->get_error_code());
-
-$backend = file_get_contents(dirname(__DIR__) . '/inc/submit/artist-dispatch.php');
-$pages = file_get_contents(dirname(__DIR__) . '/inc/submit/pages.php');
-$presentation = file_get_contents(dirname(__DIR__) . '/inc/submit/presentation.php');
-$editor = file_get_contents(dirname(__DIR__) . '/assets/js/artist-dispatch-editor.js');
-check('native capability path locks non-draft contributor posts', false !== strpos($backend, "add_filter( 'map_meta_cap'"));
-check('writes use the native posts controller policy filter', false !== strpos($backend, "add_filter( 'rest_pre_insert_post'"));
-check('native autosaves pass through the same block policy', false !== strpos($backend, "add_filter( 'rest_pre_dispatch', 'extrachill_blog_dispatch_rest_pre_autosave'"));
-check('dashboard query scopes author, post type, statuses, and provenance', false !== strpos($pages, "'author'") && false !== strpos($pages, "'post_status'") && false !== strpos($pages, 'EXTRACHILL_BLOG_DISPATCH_SOURCE_META'));
-check('editor route sends explicit no-cache controls', false !== strpos($pages, "define( 'DONOTCACHEPAGE', true )") && false !== strpos($pages, 'nocache_headers()'));
-check('editor uses canonical postEntity and native preview', false !== strpos($pages, "\$settings['postEntity']") && false !== strpos($pages, "'preview' => true"));
-check('core editor owns title and save state', false !== strpos($editor, 'window.wp.editor.PostTitle') && false !== strpos($editor, 'savePost()') && false !== strpos($editor, "editPost( { status: 'pending' } )"));
-check('published output has label, artist link, and disclosure', false !== strpos($presentation, 'Artist Dispatch disclosure') && false !== strpos($presentation, 'directly connected'));
-check('one generic publication notification descriptor is registered', 1 === substr_count($backend, "ec_users_register_publish_notify_source("));
+check('normalizes string raw content', '<!-- wp:paragraph --><p>x</p><!-- /wp:paragraph -->' === extrachill_blog_dispatch_raw_value('<!-- wp:paragraph --><p>x</p><!-- /wp:paragraph -->'));
+check('normalizes canonical core raw envelope', 'wrapped' === extrachill_blog_dispatch_raw_value(array('raw' => 'wrapped')));
+check('provenance mutation is denied outside trusted writer', false === extrachill_blog_dispatch_guard_provenance_meta(null, 12, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META));
+$GLOBALS['extrachill_blog_dispatch_meta_write'] = 12;
+check('trusted scoped provenance writer is admitted', null === extrachill_blog_dispatch_guard_provenance_meta(null, 12, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META));
+unset($GLOBALS['extrachill_blog_dispatch_meta_write']);
+$lock = extrachill_blog_dispatch_acquire_lock('create', 7);
+check('first atomic operation lock succeeds', is_string($lock));
+check('parallel operation lock fails closed', is_wp_error(extrachill_blog_dispatch_acquire_lock('create', 7)));
+extrachill_blog_dispatch_release_lock($lock);
 
 if ($failures) {
 	exit(1);

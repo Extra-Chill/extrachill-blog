@@ -22,6 +22,8 @@
 				const input = {
 					artist_id: Number( data.get( 'artist_id' ) ),
 					description: String( data.get( 'description' ) || '' ),
+					acknowledgement: data.get( 'acknowledgement' ) === 'on',
+					terms_version: window.ecArtistDispatch.termsVersion,
 				};
 				const sampleUrl = String( data.get( 'sample_url' ) || '' );
 				if ( sampleUrl ) {
@@ -32,15 +34,6 @@
 					method: 'POST',
 					data: { input },
 				} );
-
-				if ( window.ecArtistDispatch.accessEvent ) {
-					await apiFetch( {
-						path: '/wp-abilities/v1/abilities/extrachill/track-analytics-event/run',
-						method: 'POST',
-						data: { input: { event_type: window.ecArtistDispatch.accessEvent, event_data: { surface: 'artist_dispatch' } } },
-					} ).catch( () => null );
-				}
-
 				message.textContent = 'Your request is in the editorial queue.';
 				window.location.reload();
 			} catch ( error ) {
@@ -68,12 +61,8 @@
 					title: '',
 					content: '',
 					status: 'draft',
-					meta: {
-						_ec_artist_dispatch_source: 'artist-dispatch',
-						_ec_artist_dispatch_artist: Number( newButton.dataset.artist ),
-						_ec_artist_dispatch_terms_version: window.ecArtistDispatch.termsVersion,
-					},
 				},
+				headers: { 'X-Extra-Chill-Artist-Dispatch': 'create' },
 			} )
 				.then( ( post ) => {
 					if ( ! post || ! post.id ) {

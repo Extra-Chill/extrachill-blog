@@ -22,6 +22,25 @@ const EXTRACHILL_BLOG_DISPATCH_CATEGORY_SLUG     = 'artist-dispatch';
 const EXTRACHILL_BLOG_DISPATCH_MIN_BE_VERSION    = '3.6.0';
 const EXTRACHILL_BLOG_DISPATCH_DEFAULT_DRAFT_MAX = 3;
 const EXTRACHILL_BLOG_DISPATCH_DEFAULT_QUEUE_MAX = 2;
+const EXTRACHILL_BLOG_DISPATCH_ROLE              = 'extra_chill_artist_dispatch_contributor';
+const EXTRACHILL_BLOG_DISPATCH_CREATE_HEADER     = 'X-Extra-Chill-Artist-Dispatch';
+const EXTRACHILL_BLOG_DISPATCH_PAGES_OPTION      = 'extrachill_blog_artist_dispatch_pages';
+
+/** Feature-owned page definitions and exact stored sentinels. */
+const EXTRACHILL_BLOG_DISPATCH_PAGES = array(
+	'submit'            => array(
+		'title'    => 'Artist Dispatch',
+		'sentinel' => '<!-- extrachill-artist-dispatch -->',
+	),
+	'submit/guidelines' => array(
+		'title'    => 'Artist Dispatch Guidelines',
+		'sentinel' => '<!-- extrachill-artist-dispatch-guidelines -->',
+	),
+	'submit/write'      => array(
+		'title'    => 'Write an Artist Dispatch',
+		'sentinel' => '<!-- extrachill-artist-dispatch-editor -->',
+	),
+);
 
 /**
  * Provision a native page without changing an existing page.
@@ -35,7 +54,10 @@ const EXTRACHILL_BLOG_DISPATCH_DEFAULT_QUEUE_MAX = 2;
 function extrachill_blog_provision_submit_page( $path, $title, $sentinel, $parent_id = 0 ) {
 	$existing = get_page_by_path( $path, OBJECT, 'page' );
 	if ( $existing ) {
-		return (int) $existing->ID;
+		$owned = (array) get_option( EXTRACHILL_BLOG_DISPATCH_PAGES_OPTION, array() );
+		return isset( $owned[ $path ] ) && (int) $owned[ $path ] === (int) $existing->ID && $sentinel === $existing->post_content
+			? (int) $existing->ID
+			: 0;
 	}
 
 	$page_id = wp_insert_post(
@@ -43,14 +65,20 @@ function extrachill_blog_provision_submit_page( $path, $title, $sentinel, $paren
 			'post_title'   => $title,
 			'post_name'    => basename( $path ),
 			'post_content' => $sentinel,
-			'post_status'  => 'publish',
+			'post_status'  => 'draft',
 			'post_type'    => 'page',
 			'post_parent'  => $parent_id,
 		),
 		true
 	);
 
-	return is_wp_error( $page_id ) ? 0 : (int) $page_id;
+	if ( is_wp_error( $page_id ) || ! $page_id ) {
+		return 0;
+	}
+	$owned          = (array) get_option( EXTRACHILL_BLOG_DISPATCH_PAGES_OPTION, array() );
+	$owned[ $path ] = (int) $page_id;
+	update_option( EXTRACHILL_BLOG_DISPATCH_PAGES_OPTION, $owned );
+	return (int) $page_id;
 }
 
 /**
@@ -59,22 +87,29 @@ function extrachill_blog_provision_submit_page( $path, $title, $sentinel, $paren
 function extrachill_blog_provision_submit_pages() {
 	$submit_id = extrachill_blog_provision_submit_page(
 		'submit',
-		__( 'Artist Dispatch', 'extrachill-blog' ),
-		'<!-- extrachill-artist-dispatch -->'
+		EXTRACHILL_BLOG_DISPATCH_PAGES['submit']['title'],
+		EXTRACHILL_BLOG_DISPATCH_PAGES['submit']['sentinel']
 	);
+	if ( ! $submit_id ) {
+		return false;
+	}
 
-	extrachill_blog_provision_submit_page(
+	$guidelines_id = extrachill_blog_provision_submit_page(
 		'submit/guidelines',
-		__( 'Artist Dispatch Guidelines', 'extrachill-blog' ),
-		'<!-- extrachill-artist-dispatch-guidelines -->',
+		EXTRACHILL_BLOG_DISPATCH_PAGES['submit/guidelines']['title'],
+		EXTRACHILL_BLOG_DISPATCH_PAGES['submit/guidelines']['sentinel'],
 		$submit_id
 	);
-	extrachill_blog_provision_submit_page(
+	if ( ! $guidelines_id ) {
+		return false;
+	}
+	$write_id = extrachill_blog_provision_submit_page(
 		'submit/write',
-		__( 'Write an Artist Dispatch', 'extrachill-blog' ),
-		'<!-- extrachill-artist-dispatch-editor -->',
+		EXTRACHILL_BLOG_DISPATCH_PAGES['submit/write']['title'],
+		EXTRACHILL_BLOG_DISPATCH_PAGES['submit/write']['sentinel'],
 		$submit_id
 	);
+	return (bool) $write_id;
 }
 
 /**
@@ -82,8 +117,9 @@ function extrachill_blog_provision_submit_pages() {
  */
 function extrachill_blog_maybe_provision_submit_pages() {
 	if ( version_compare( get_option( 'extrachill_blog_submit_page_version', '0' ), EXTRACHILL_BLOG_VERSION, '<' ) ) {
-		extrachill_blog_provision_submit_pages();
-		update_option( 'extrachill_blog_submit_page_version', EXTRACHILL_BLOG_VERSION );
+		if ( extrachill_blog_provision_submit_pages() ) {
+			update_option( 'extrachill_blog_submit_page_version', EXTRACHILL_BLOG_VERSION );
+		}
 	}
 }
 add_action( 'admin_init', 'extrachill_blog_maybe_provision_submit_pages' );
@@ -103,10 +139,11 @@ function extrachill_blog_dispatch_access() {
 
 	$ability = wp_get_ability( 'extrachill/get-artist-dispatch-access' );
 	if ( ! $ability ) {
-		return new WP_Error( 'artist_dispatch_dependency_missing', __( 'Artist Dispatch access is temporarily unavailable.', 'extrachill-blog' ) );
+		$result = new WP_Error( 'artist_dispatch_dependency_missing', __( 'Artist Dispatch access is temporarily unavailable.', 'extrachill-blog' ) );
+	} else {
+		$result = $ability->execute( array() );
 	}
-
-	$result = $ability->execute( array() );
+	$result = apply_filters( 'extrachill_blog_artist_dispatch_access_state', $result );
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
@@ -130,6 +167,19 @@ function extrachill_blog_dispatch_is_approved( $access = null ) {
 		&& 'approved' === $access['status']
 		&& current_user_can( 'edit_posts' )
 		&& current_user_can( 'submit_for_review' ); // phpcs:ignore WordPress.WP.Capabilities.Unknown -- registered by the required Extra Chill Users dependency.
+}
+
+/**
+ * Confirm the audited terms acceptance returned by Extra Chill Users.
+ *
+ * @param array|WP_Error $access Access state.
+ * @return bool Whether current terms were accepted in the audited request.
+ */
+function extrachill_blog_dispatch_has_current_terms( $access ) {
+	return ! is_wp_error( $access )
+		&& ! empty( $access['terms_acknowledged'] )
+		&& isset( $access['terms_version'] )
+		&& EXTRACHILL_BLOG_DISPATCH_TERMS_VERSION === $access['terms_version'];
 }
 
 /**
@@ -157,6 +207,22 @@ function extrachill_blog_dispatch_can_represent_artist( $artist_id, $access = nu
 }
 
 /**
+ * Revalidate a stored submitter-to-artist relationship through its owner.
+ *
+ * @param int $post_id Dispatch post ID.
+ * @return bool Whether the canonical relationship and profile still exist.
+ */
+function extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) {
+	$submitter = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, true ) );
+	$artist_id = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, true ) );
+	if ( ! $submitter || ! $artist_id || ! function_exists( 'ec_get_artists_for_user' ) ) {
+		return false;
+	}
+	$artist_ids = array_map( 'absint', (array) ec_get_artists_for_user( $submitter, false ) );
+	return in_array( $artist_id, $artist_ids, true ) && ! empty( extrachill_blog_dispatch_artist_display( $artist_id ) );
+}
+
+/**
  * Check the deployed Blocks Everywhere dependency.
  *
  * @return bool Whether the canonical editor API is available.
@@ -174,6 +240,44 @@ function extrachill_blog_dispatch_has_editor_dependency() {
  */
 function extrachill_blog_is_artist_dispatch( $post_id ) {
 	return EXTRACHILL_BLOG_DISPATCH_SOURCE === get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_SOURCE_META, true );
+}
+
+/**
+ * Whether a user is an editorial reviewer.
+ *
+ * @param int $user_id User ID, or current user when omitted.
+ * @return bool Whether the user can edit others' posts.
+ */
+function extrachill_blog_dispatch_is_editor( $user_id = 0 ) {
+	$user_id = $user_id ? absint( $user_id ) : get_current_user_id();
+	return $user_id > 0 && user_can( $user_id, 'edit_others_posts' );
+}
+
+/**
+ * Whether edit_posts authority comes only from the dedicated Dispatch role.
+ *
+ * Users with an unrelated Author-style role retain their ordinary post lane;
+ * marked Dispatch writes still require current product approval separately.
+ *
+ * @param int $user_id User ID, or current user when omitted.
+ * @return bool Whether the product grant is the sole editing role.
+ */
+function extrachill_blog_dispatch_is_product_only_user( $user_id = 0 ) {
+	$user_id = $user_id ? absint( $user_id ) : get_current_user_id();
+	$user    = get_userdata( $user_id );
+	if ( ! $user || ! user_can( $user_id, 'submit_for_review' ) || extrachill_blog_dispatch_is_editor( $user_id ) ) { // phpcs:ignore WordPress.WP.Capabilities.Unknown -- registered by Extra Chill Users.
+		return false;
+	}
+	foreach ( (array) $user->roles as $role_name ) {
+		if ( EXTRACHILL_BLOG_DISPATCH_ROLE === $role_name ) {
+			continue;
+		}
+		$role = get_role( $role_name );
+		if ( $role && ! empty( $role->capabilities['edit_posts'] ) ) {
+			return false;
+		}
+	}
+	return true;
 }
 
 /**
@@ -212,8 +316,19 @@ function extrachill_blog_dispatch_count( $status, $exclude = 0 ) {
 	return (int) $query->found_posts;
 }
 
+/** Get the server-owned provenance keys. */
+function extrachill_blog_dispatch_provenance_keys() {
+	return array(
+		EXTRACHILL_BLOG_DISPATCH_SOURCE_META,
+		EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META,
+		EXTRACHILL_BLOG_DISPATCH_ARTIST_META,
+		EXTRACHILL_BLOG_DISPATCH_SUBMITTED_META,
+		EXTRACHILL_BLOG_DISPATCH_TERMS_META,
+	);
+}
+
 /**
- * Register private provenance fields exposed only in edit context.
+ * Register provenance without exposing it through public REST responses.
  */
 function extrachill_blog_dispatch_register_meta() {
 	$fields = array(
@@ -231,15 +346,172 @@ function extrachill_blog_dispatch_register_meta() {
 			array(
 				'single'        => true,
 				'type'          => $type,
-				'show_in_rest'  => true,
-				'auth_callback' => function () {
-					return current_user_can( 'edit_posts' );
-				},
+				'show_in_rest'  => false,
+				'auth_callback' => '__return_false',
 			)
 		);
 	}
 }
 add_action( 'init', 'extrachill_blog_dispatch_register_meta' );
+
+/**
+ * Block direct provenance mutation; only this plugin's scoped writer may set it.
+ *
+ * @param mixed  $check Existing short-circuit value.
+ * @param int    $object_id Post ID.
+ * @param string $meta_key Meta key.
+ * @return mixed False for unauthorized provenance writes, original value otherwise.
+ */
+function extrachill_blog_dispatch_guard_provenance_meta( $check, $object_id, $meta_key ) {
+	if ( ! in_array( $meta_key, extrachill_blog_dispatch_provenance_keys(), true ) ) {
+		return $check;
+	}
+	$allowed = isset( $GLOBALS['extrachill_blog_dispatch_meta_write'] )
+		&& (int) $GLOBALS['extrachill_blog_dispatch_meta_write'] === (int) $object_id;
+	return $allowed ? $check : false;
+}
+add_filter( 'add_post_metadata', 'extrachill_blog_dispatch_guard_provenance_meta', 10, 3 );
+add_filter( 'update_post_metadata', 'extrachill_blog_dispatch_guard_provenance_meta', 10, 3 );
+add_filter( 'delete_post_metadata', 'extrachill_blog_dispatch_guard_provenance_meta', 10, 3 );
+
+/**
+ * Write one immutable provenance value from the trusted server path.
+ *
+ * @param int    $post_id Post ID.
+ * @param string $key Provenance key.
+ * @param mixed  $value Value.
+ */
+function extrachill_blog_dispatch_set_provenance( $post_id, $key, $value ) {
+	if ( ! in_array( $key, extrachill_blog_dispatch_provenance_keys(), true ) ) {
+		return;
+	}
+	$GLOBALS['extrachill_blog_dispatch_meta_write'] = (int) $post_id;
+	update_post_meta( $post_id, $key, $value );
+	unset( $GLOBALS['extrachill_blog_dispatch_meta_write'] );
+}
+
+/**
+ * Detect any attempt to send server-owned provenance through REST.
+ *
+ * @param WP_REST_Request $request Request.
+ * @return bool Whether provenance was supplied.
+ */
+function extrachill_blog_dispatch_request_has_provenance( $request ) {
+	$meta = $request->get_param( 'meta' );
+	if ( ! is_array( $meta ) ) {
+		return false;
+	}
+	return (bool) array_intersect( array_keys( $meta ), extrachill_blog_dispatch_provenance_keys() );
+}
+
+/**
+ * Normalize a core REST raw-field envelope to a string.
+ *
+ * @param mixed $value Raw string or {raw: string} envelope.
+ * @return string Normalized raw value.
+ */
+function extrachill_blog_dispatch_raw_value( $value ) {
+	if ( is_array( $value ) && array_key_exists( 'raw', $value ) ) {
+		$value = $value['raw'];
+	} elseif ( is_object( $value ) && isset( $value->raw ) ) {
+		$value = $value->raw;
+	}
+	return is_scalar( $value ) ? (string) $value : '';
+}
+
+/**
+ * Acquire an atomic, short per-user operation lock.
+ *
+ * WordPress add_option() is an atomic database insert even without persistent object
+ * cache, so parallel tabs cannot both pass count+write.
+ *
+ * @param string $operation Operation name.
+ * @param int    $user_id User ID.
+ * @return string|WP_Error Lock option name or conflict.
+ */
+function extrachill_blog_dispatch_acquire_lock( $operation, $user_id ) {
+	$key     = 'ec_dispatch_lock_' . sanitize_key( $operation ) . '_' . absint( $user_id );
+	$expires = time() + 15;
+	$current = (int) get_option( $key, 0 );
+	if ( $current && $current < time() ) {
+		delete_option( $key );
+	}
+	if ( ! add_option( $key, $expires, '', false ) ) {
+		return new WP_Error( 'artist_dispatch_write_in_progress', __( 'Another Artist Dispatch request is already in progress.', 'extrachill-blog' ), array( 'status' => 409 ) );
+	}
+	$GLOBALS['extrachill_blog_dispatch_locks'][ $key ] = true;
+	return $key;
+}
+
+/**
+ * Release one atomic operation lock.
+ *
+ * @param string $key Lock option name.
+ */
+function extrachill_blog_dispatch_release_lock( $key ) {
+	if ( $key ) {
+		delete_option( $key );
+		unset( $GLOBALS['extrachill_blog_dispatch_locks'][ $key ] );
+	}
+}
+
+/** Release request locks if core exits before an after-insert hook. */
+function extrachill_blog_dispatch_release_request_locks() {
+	foreach ( array_keys( isset( $GLOBALS['extrachill_blog_dispatch_locks'] ) ? (array) $GLOBALS['extrachill_blog_dispatch_locks'] : array() ) as $key ) {
+		extrachill_blog_dispatch_release_lock( $key );
+	}
+}
+add_action( 'shutdown', 'extrachill_blog_dispatch_release_request_locks' );
+
+/**
+ * Authorize exactly one low-level post insertion after REST validation.
+ *
+ * @param int   $post_id Existing post ID, or zero for create.
+ * @param array $context Trusted context.
+ */
+function extrachill_blog_dispatch_authorize_insert( $post_id, array $context ) {
+	$context['post_id']                                 = absint( $post_id );
+	$context['consumed']                                = false;
+	$GLOBALS['extrachill_blog_dispatch_insert_context'] = $context;
+}
+
+/**
+ * Constrain direct wp_insert_post/wp_update_post use for product-only users.
+ *
+ * Validated core REST writes install a one-use authorization context. wp-admin,
+ * direct PHP writes, and a second insertion in the same request fail closed.
+ *
+ * @param bool  $maybe_empty Core empty-content verdict.
+ * @param array $postarr Post data.
+ * @return bool Whether insertion must stop.
+ */
+function extrachill_blog_dispatch_gate_low_level_insert( $maybe_empty, $postarr ) {
+	if ( 'post' !== ( isset( $postarr['post_type'] ) ? $postarr['post_type'] : 'post' ) ) {
+		return $maybe_empty;
+	}
+	$post_id = isset( $postarr['ID'] ) ? absint( $postarr['ID'] ) : 0;
+	$status  = isset( $postarr['post_status'] ) ? $postarr['post_status'] : '';
+	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && in_array( $status, array( 'pending', 'publish', 'future' ), true ) && ! extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) ) {
+		return true;
+	}
+	$context = isset( $GLOBALS['extrachill_blog_dispatch_insert_context'] ) ? $GLOBALS['extrachill_blog_dispatch_insert_context'] : array();
+	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && ! extrachill_blog_dispatch_is_editor() ) {
+		if ( empty( $context ) || ! empty( $context['consumed'] ) || (int) $context['post_id'] !== $post_id ) {
+			return true;
+		}
+		$GLOBALS['extrachill_blog_dispatch_insert_context']['consumed'] = true;
+		return false;
+	}
+	if ( ! extrachill_blog_dispatch_is_product_only_user() ) {
+		return $maybe_empty;
+	}
+	if ( empty( $context ) || ! empty( $context['consumed'] ) || (int) $context['post_id'] !== $post_id ) {
+		return true;
+	}
+	$GLOBALS['extrachill_blog_dispatch_insert_context']['consumed'] = true;
+	return false;
+}
+add_filter( 'wp_insert_post_empty_content', 'extrachill_blog_dispatch_gate_low_level_insert', 10, 2 );
 
 /**
  * Recursively validate the text-first block and embed policy.
@@ -286,128 +558,111 @@ function extrachill_blog_dispatch_validate_blocks( array $blocks ) {
  * @return stdClass|WP_Error Prepared post or error.
  */
 function extrachill_blog_dispatch_rest_pre_insert( $prepared_post, $request ) {
-	$post_id  = absint( $request->get_param( 'id' ) );
-	$meta     = (array) $request->get_param( 'meta' );
-	$creating = 0 === $post_id && EXTRACHILL_BLOG_DISPATCH_SOURCE === ( isset( $meta[ EXTRACHILL_BLOG_DISPATCH_SOURCE_META ] ) ? $meta[ EXTRACHILL_BLOG_DISPATCH_SOURCE_META ] : '' );
-	$marked   = $post_id > 0 && extrachill_blog_is_artist_dispatch( $post_id );
+	$post_id     = absint( $request->get_param( 'id' ) );
+	$creating    = 0 === $post_id;
+	$marked      = $post_id > 0 && extrachill_blog_is_artist_dispatch( $post_id );
+	$is_editor   = extrachill_blog_dispatch_is_editor();
+	$is_create   = $creating && 'create' === $request->get_header( EXTRACHILL_BLOG_DISPATCH_CREATE_HEADER );
+	$is_autosave = false !== strpos( $request->get_route(), '/autosaves' );
 
+	if ( extrachill_blog_dispatch_request_has_provenance( $request ) ) {
+		return new WP_Error( 'artist_dispatch_server_owned_provenance', __( 'Artist Dispatch provenance is server-owned.', 'extrachill-blog' ), array( 'status' => 400 ) );
+	}
+	if ( $creating && ! $is_create ) {
+		return extrachill_blog_dispatch_is_product_only_user()
+			? new WP_Error( 'artist_dispatch_creation_required', __( 'Use the Artist Dispatch dashboard to create a post.', 'extrachill-blog' ), array( 'status' => 403 ) )
+			: $prepared_post;
+	}
 	if ( ! $creating && ! $marked ) {
-		return $prepared_post;
+		return extrachill_blog_dispatch_is_product_only_user()
+			? new WP_Error( 'artist_dispatch_unmarked_forbidden', __( 'This account can edit only validated Artist Dispatches.', 'extrachill-blog' ), array( 'status' => 403 ) )
+			: $prepared_post;
 	}
 	if ( ! is_user_logged_in() || ! current_user_can( 'edit_posts' ) ) {
 		return new WP_Error( 'artist_dispatch_forbidden', __( 'You cannot edit Artist Dispatches.', 'extrachill-blog' ), array( 'status' => 403 ) );
 	}
 
-	$is_editor = current_user_can( 'edit_others_posts' );
-	if ( ! $is_editor ) {
-		$allowed_params = array( 'id', 'title', 'content', 'status', 'meta', 'context', '_locale' );
-		foreach ( array_keys( $request->get_params() ) as $param ) {
-			if ( ! in_array( $param, $allowed_params, true ) ) {
-				return new WP_Error( 'artist_dispatch_forbidden_field', __( 'That post field is managed by the editorial team.', 'extrachill-blog' ), array( 'status' => 400 ) );
-			}
+	if ( $is_create ) {
+		$access = extrachill_blog_dispatch_access();
+		if ( is_wp_error( $access ) ) {
+			return $access;
 		}
-	}
-	if ( $creating ) {
-		$access    = extrachill_blog_dispatch_access();
-		$artist_id = absint( isset( $meta[ EXTRACHILL_BLOG_DISPATCH_ARTIST_META ] ) ? $meta[ EXTRACHILL_BLOG_DISPATCH_ARTIST_META ] : 0 );
-		$terms     = sanitize_text_field( isset( $meta[ EXTRACHILL_BLOG_DISPATCH_TERMS_META ] ) ? $meta[ EXTRACHILL_BLOG_DISPATCH_TERMS_META ] : '' );
-		if ( array_diff( array_keys( $meta ), array( EXTRACHILL_BLOG_DISPATCH_SOURCE_META, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, EXTRACHILL_BLOG_DISPATCH_TERMS_META ) ) ) {
-			return new WP_Error( 'artist_dispatch_forbidden_meta', __( 'That post metadata is managed by the editorial team.', 'extrachill-blog' ), array( 'status' => 400 ) );
+		$artist_id = absint( isset( $access['artist_id'] ) ? $access['artist_id'] : 0 );
+		if ( $is_editor || ! extrachill_blog_dispatch_is_approved( $access ) || ! extrachill_blog_dispatch_has_current_terms( $access ) || ! extrachill_blog_dispatch_can_represent_artist( $artist_id, $access ) ) {
+			return new WP_Error( 'artist_dispatch_invalid_access', __( 'Approved access, a represented artist, and current audited terms are required.', 'extrachill-blog' ), array( 'status' => 403 ) );
 		}
-		if ( ! extrachill_blog_dispatch_can_represent_artist( $artist_id, $access ) || EXTRACHILL_BLOG_DISPATCH_TERMS_VERSION !== $terms ) {
-			return new WP_Error( 'artist_dispatch_invalid_provenance', __( 'The represented artist or accepted guidelines are invalid.', 'extrachill-blog' ), array( 'status' => 400 ) );
+		$lock = extrachill_blog_dispatch_acquire_lock( 'create', get_current_user_id() );
+		if ( is_wp_error( $lock ) ) {
+			return $lock;
 		}
 		if ( extrachill_blog_dispatch_count( 'draft' ) >= extrachill_blog_dispatch_limits()['draft'] ) {
+			extrachill_blog_dispatch_release_lock( $lock );
 			return new WP_Error( 'artist_dispatch_draft_limit', __( 'Finish or submit an existing draft before starting another.', 'extrachill-blog' ), array( 'status' => 429 ) );
 		}
 		$prepared_post->post_author = get_current_user_id();
 		$prepared_post->post_status = 'draft';
+		extrachill_blog_dispatch_authorize_insert(
+			0,
+			array(
+				'creating'  => true,
+				'artist_id' => $artist_id,
+				'terms'     => $access['terms_version'],
+				'lock'      => $lock,
+			)
+		);
+		return $prepared_post;
 	}
 
-	if ( $marked && ! $is_editor ) {
-		$post = get_post( $post_id );
-		if ( ! $post || get_current_user_id() !== (int) $post->post_author || 'draft' !== $post->post_status ) {
-			return new WP_Error( 'artist_dispatch_locked', __( 'Only your draft Artist Dispatches can be edited.', 'extrachill-blog' ), array( 'status' => 403 ) );
-		}
-		foreach ( $meta as $meta_key => $meta_value ) {
-			$stored = get_post_meta( $post_id, $meta_key, true );
-			if ( ! in_array( $meta_key, array( EXTRACHILL_BLOG_DISPATCH_SOURCE_META, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, EXTRACHILL_BLOG_DISPATCH_SUBMITTED_META, EXTRACHILL_BLOG_DISPATCH_TERMS_META ), true ) || (string) $stored !== (string) $meta_value ) {
-				return new WP_Error( 'artist_dispatch_immutable_provenance', __( 'Artist Dispatch provenance cannot be changed.', 'extrachill-blog' ), array( 'status' => 400 ) );
+	if ( $is_editor ) {
+		return $prepared_post;
+	}
+	$access = extrachill_blog_dispatch_access();
+	$post   = get_post( $post_id );
+	if ( ! extrachill_blog_dispatch_is_approved( $access ) || ! extrachill_blog_dispatch_has_current_terms( $access ) || ! $post || get_current_user_id() !== (int) $post->post_author || 'draft' !== $post->post_status ) {
+		return new WP_Error( 'artist_dispatch_locked', __( 'Only a currently approved submitter can edit their draft Artist Dispatch.', 'extrachill-blog' ), array( 'status' => 403 ) );
+	}
+	if ( ! extrachill_blog_dispatch_can_represent_artist( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, true ), $access ) ) {
+		return new WP_Error( 'artist_dispatch_artist_invalid', __( 'The represented artist relationship is no longer valid.', 'extrachill-blog' ), array( 'status' => 403 ) );
+	}
+	$status = isset( $prepared_post->post_status ) ? $prepared_post->post_status : $post->post_status;
+	if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
+		return new WP_Error( 'artist_dispatch_invalid_status', __( 'Artist Dispatches can only be saved or submitted for review.', 'extrachill-blog' ), array( 'status' => 403 ) );
+	}
+	if ( ! $is_autosave ) {
+		foreach ( array( 'author', 'featured_media', 'slug', 'date', 'date_gmt', 'categories', 'tags', 'template', 'format', 'password', 'sticky' ) as $field ) {
+			if ( $request->has_param( $field ) ) {
+				return new WP_Error( 'artist_dispatch_forbidden_field', __( 'That post field is managed by the editorial team.', 'extrachill-blog' ), array( 'status' => 400 ) );
 			}
 		}
-		$status = isset( $prepared_post->post_status ) ? $prepared_post->post_status : 'draft';
-		if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
-			return new WP_Error( 'artist_dispatch_invalid_status', __( 'Artist Dispatches can only be saved or submitted for review.', 'extrachill-blog' ), array( 'status' => 403 ) );
+	}
+	$effective_content = $request->has_param( 'content' )
+		? extrachill_blog_dispatch_raw_value( $request->get_param( 'content' ) )
+		: $post->post_content;
+	$valid             = extrachill_blog_dispatch_validate_blocks( parse_blocks( $effective_content ) );
+	if ( is_wp_error( $valid ) ) {
+		return $valid;
+	}
+	$lock = '';
+	if ( 'pending' === $status ) {
+		$lock = extrachill_blog_dispatch_acquire_lock( 'pending', get_current_user_id() );
+		if ( is_wp_error( $lock ) ) {
+			return $lock;
 		}
-		if ( 'pending' === $status && extrachill_blog_dispatch_count( 'pending', $post_id ) >= extrachill_blog_dispatch_limits()['pending'] ) {
+		if ( extrachill_blog_dispatch_count( 'pending', $post_id ) >= extrachill_blog_dispatch_limits()['pending'] ) {
+			extrachill_blog_dispatch_release_lock( $lock );
 			return new WP_Error( 'artist_dispatch_pending_limit', __( 'Wait for an editor to review an existing submission before sending another.', 'extrachill-blog' ), array( 'status' => 429 ) );
 		}
 	}
-
-	$content = isset( $prepared_post->post_content ) ? $prepared_post->post_content : '';
-	if ( '' !== $content ) {
-		$valid = extrachill_blog_dispatch_validate_blocks( parse_blocks( $content ) );
-		if ( is_wp_error( $valid ) ) {
-			return $valid;
-		}
-	}
-
+	extrachill_blog_dispatch_authorize_insert(
+		$post_id,
+		array(
+			'creating' => false,
+			'lock'     => $lock,
+		)
+	);
 	return $prepared_post;
 }
 add_filter( 'rest_pre_insert_post', 'extrachill_blog_dispatch_rest_pre_insert', 10, 2 );
-
-/**
- * Apply the same policy to core's autosave controller.
- *
- * Core autosaves use the native parent permission callback but do not run the
- * posts controller's rest_pre_insert_post filter before writing the revision.
- *
- * @param mixed           $result Pre-dispatch result.
- * @param WP_REST_Server  $server REST server.
- * @param WP_REST_Request $request REST request.
- * @return mixed|WP_Error Result or policy error.
- */
-function extrachill_blog_dispatch_rest_pre_autosave( $result, $server, $request ) {
-	unset( $server );
-	if ( null !== $result || ! preg_match( '#^/wp/v2/posts/(?P<id>\d+)/autosaves$#', $request->get_route(), $matches ) ) {
-		return $result;
-	}
-
-	$post_id = absint( $matches['id'] );
-	if ( ! extrachill_blog_is_artist_dispatch( $post_id ) ) {
-		return $result;
-	}
-	$post      = get_post( $post_id );
-	$submitter = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, true ) );
-	if ( ! $post || 'draft' !== $post->post_status || get_current_user_id() !== $submitter || ! current_user_can( 'edit_post', $post_id ) ) {
-		return new WP_Error( 'artist_dispatch_autosave_forbidden', __( 'This Artist Dispatch cannot be autosaved.', 'extrachill-blog' ), array( 'status' => 403 ) );
-	}
-	$allowed_params = array( 'id', 'title', 'content', 'excerpt', 'status', 'meta', 'context', '_locale' );
-	foreach ( array_keys( $request->get_params() ) as $param ) {
-		if ( ! in_array( $param, $allowed_params, true ) ) {
-			return new WP_Error( 'artist_dispatch_forbidden_field', __( 'That post field is managed by the editorial team.', 'extrachill-blog' ), array( 'status' => 400 ) );
-		}
-	}
-
-	$meta = (array) $request->get_param( 'meta' );
-	foreach ( $meta as $meta_key => $meta_value ) {
-		if ( ! in_array( $meta_key, array( EXTRACHILL_BLOG_DISPATCH_SOURCE_META, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, EXTRACHILL_BLOG_DISPATCH_SUBMITTED_META, EXTRACHILL_BLOG_DISPATCH_TERMS_META ), true ) || (string) get_post_meta( $post_id, $meta_key, true ) !== (string) $meta_value ) {
-			return new WP_Error( 'artist_dispatch_immutable_provenance', __( 'Artist Dispatch provenance cannot be changed.', 'extrachill-blog' ), array( 'status' => 400 ) );
-		}
-	}
-	if ( $request->has_param( 'excerpt' ) && '' !== trim( (string) $request->get_param( 'excerpt' ) ) ) {
-		return new WP_Error( 'artist_dispatch_forbidden_field', __( 'That post field is managed by the editorial team.', 'extrachill-blog' ), array( 'status' => 400 ) );
-	}
-	if ( $request->has_param( 'content' ) ) {
-		$valid = extrachill_blog_dispatch_validate_blocks( parse_blocks( (string) $request->get_param( 'content' ) ) );
-		if ( is_wp_error( $valid ) ) {
-			return $valid;
-		}
-	}
-
-	return $result;
-}
-add_filter( 'rest_pre_dispatch', 'extrachill_blog_dispatch_rest_pre_autosave', 10, 3 );
 
 /**
  * Stamp trusted provenance after native draft creation.
@@ -417,15 +672,20 @@ add_filter( 'rest_pre_dispatch', 'extrachill_blog_dispatch_rest_pre_autosave', 1
  * @param bool            $creating Whether the post was created.
  */
 function extrachill_blog_dispatch_rest_after_insert( $post, $request, $creating ) {
-	$meta = (array) $request->get_param( 'meta' );
-	if ( $creating && EXTRACHILL_BLOG_DISPATCH_SOURCE === ( isset( $meta[ EXTRACHILL_BLOG_DISPATCH_SOURCE_META ] ) ? $meta[ EXTRACHILL_BLOG_DISPATCH_SOURCE_META ] : '' ) ) {
-		update_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_SOURCE_META, EXTRACHILL_BLOG_DISPATCH_SOURCE );
-		update_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, get_current_user_id() );
-		update_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, absint( $meta[ EXTRACHILL_BLOG_DISPATCH_ARTIST_META ] ) );
-		update_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_TERMS_META, EXTRACHILL_BLOG_DISPATCH_TERMS_VERSION );
+	unset( $request );
+	$context = isset( $GLOBALS['extrachill_blog_dispatch_insert_context'] ) ? $GLOBALS['extrachill_blog_dispatch_insert_context'] : array();
+	if ( $creating && ! empty( $context['creating'] ) && ! empty( $context['consumed'] ) ) {
+		extrachill_blog_dispatch_set_provenance( $post->ID, EXTRACHILL_BLOG_DISPATCH_SOURCE_META, EXTRACHILL_BLOG_DISPATCH_SOURCE );
+		extrachill_blog_dispatch_set_provenance( $post->ID, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, get_current_user_id() );
+		extrachill_blog_dispatch_set_provenance( $post->ID, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, absint( $context['artist_id'] ) );
+		extrachill_blog_dispatch_set_provenance( $post->ID, EXTRACHILL_BLOG_DISPATCH_TERMS_META, sanitize_text_field( $context['terms'] ) );
 		extrachill_blog_dispatch_ensure_category( $post->ID );
 		extrachill_blog_dispatch_emit_event( 'draft_created', $post->ID );
 	}
+	if ( ! empty( $context['lock'] ) ) {
+		extrachill_blog_dispatch_release_lock( $context['lock'] );
+	}
+	unset( $GLOBALS['extrachill_blog_dispatch_insert_context'] );
 }
 add_action( 'rest_after_insert_post', 'extrachill_blog_dispatch_rest_after_insert', 10, 3 );
 
@@ -443,11 +703,17 @@ function extrachill_blog_dispatch_map_meta_cap( $caps, $cap, $user_id, $args ) {
 		return $caps;
 	}
 	$post = get_post( absint( $args[0] ) );
-	if ( ! $post || ! extrachill_blog_is_artist_dispatch( $post->ID ) || user_can( $user_id, 'edit_others_posts' ) ) {
+	if ( ! $post || ! extrachill_blog_is_artist_dispatch( $post->ID ) || extrachill_blog_dispatch_is_editor( $user_id ) ) {
 		return $caps;
 	}
 	$submitter = absint( get_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, true ) );
+	if ( 'read_post' === $cap ) {
+		return 'publish' === $post->post_status || $submitter === (int) $user_id ? $caps : array( 'do_not_allow' );
+	}
 	if ( $submitter !== (int) $user_id || 'draft' !== $post->post_status ) {
+		return array( 'do_not_allow' );
+	}
+	if ( get_current_user_id() !== (int) $user_id || ! extrachill_blog_dispatch_is_approved() ) {
 		return array( 'do_not_allow' );
 	}
 	return $caps;
@@ -467,7 +733,7 @@ function extrachill_blog_dispatch_transition( $new_status, $old_status, $post ) 
 	}
 	if ( 'pending' === $new_status && 'draft' === $old_status ) {
 		if ( ! get_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_SUBMITTED_META, true ) ) {
-			update_post_meta( $post->ID, EXTRACHILL_BLOG_DISPATCH_SUBMITTED_META, current_time( 'mysql', true ) );
+			extrachill_blog_dispatch_set_provenance( $post->ID, EXTRACHILL_BLOG_DISPATCH_SUBMITTED_META, current_time( 'mysql', true ) );
 		}
 		extrachill_blog_dispatch_emit_event( 'submitted', $post->ID );
 	}
@@ -486,10 +752,9 @@ add_action( 'transition_post_status', 'extrachill_blog_dispatch_transition', 10,
  */
 function extrachill_blog_dispatch_event_name( $event ) {
 	$events = array(
-		'access_requested' => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_ACCESS_REQUESTED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_ACCESS_REQUESTED : 'artist_dispatch_access_requested',
-		'draft_created'    => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_DRAFT_CREATED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_DRAFT_CREATED : 'artist_dispatch_draft_created',
-		'submitted'        => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_SUBMITTED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_SUBMITTED : 'artist_dispatch_submitted',
-		'published'        => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_PUBLISHED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_PUBLISHED : 'artist_dispatch_published',
+		'draft_created' => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_DRAFT_CREATED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_DRAFT_CREATED : '',
+		'submitted'     => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_SUBMITTED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_SUBMITTED : '',
+		'published'     => defined( 'EC_ANALYTICS_EVENT_ARTIST_DISPATCH_PUBLISHED' ) ? EC_ANALYTICS_EVENT_ARTIST_DISPATCH_PUBLISHED : '',
 	);
 	return isset( $events[ $event ] ) ? $events[ $event ] : '';
 }
@@ -506,10 +771,11 @@ function extrachill_blog_dispatch_emit_event( $event, $post_id = 0 ) {
 	if ( ! $ability ) {
 		return;
 	}
-	$data = array( 'surface' => 'artist_dispatch' );
-	if ( $post_id ) {
-		$data['post_id'] = absint( $post_id );
-	}
+	$data = array(
+		'post_id'           => absint( $post_id ),
+		'submitter_user_id' => absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, true ) ),
+		'artist_id'         => absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, true ) ),
+	);
 	$ability->execute(
 		array(
 			'event_type' => $name,

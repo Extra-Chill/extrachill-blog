@@ -10,6 +10,7 @@ const editorSource = fs.readFileSync( require.resolve( '../assets/js/artist-disp
 let clickHandler;
 let requests = 0;
 let destination = '';
+let createRequest;
 const message = { textContent: '' };
 const button = {
 	dataset: { artist: '42' },
@@ -20,8 +21,9 @@ const button = {
 		}
 	},
 };
-const apiFetch = () => {
+const apiFetch = options => {
 	requests++;
+	createRequest = options;
 	return Promise.resolve( { id: 91 } );
 };
 apiFetch.use = () => {};
@@ -50,6 +52,8 @@ clickHandler();
 
 setImmediate( () => {
 	assert.equal( requests, 1, 'double click shares exactly one in-flight create' );
+	assert.equal( createRequest.headers[ 'X-Extra-Chill-Artist-Dispatch' ], 'create', 'create uses explicit validated server intent' );
+	assert.equal( Object.hasOwn( createRequest.data, 'meta' ), false, 'browser never authors provenance' );
 	assert.equal( destination, '/submit/write/?post=91', 'successful create navigates to the positive draft ID' );
 	assert.match( editorSource, /window\.wp\.editor\.PostTitle/, 'title is owned by core/editor' );
 	assert.match( editorSource, /savePost\(\)/, 'explicit saves use core/editor savePost' );
