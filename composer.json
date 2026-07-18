@@ -18,6 +18,8 @@
             "php tests/artist-activity.php",
             "php tests/newsletter-context.php",
             "php tests/network-bridge.php",
+            "php tests/artist-dispatch.php",
+            "node tests/artist-dispatch-js.js",
             "@lint:php"
         ]
     },
