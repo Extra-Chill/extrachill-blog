@@ -14,4 +14,4 @@ Blocks Everywhere 3.6 mounts WordPress core's `LocalAutosaveMonitor`, but this i
 
 ## Integration Test
 
-`tests/integration/artist-dispatch-rest.php` drives the actual core posts and autosaves controllers and must run only in a disposable WordPress sandbox with Extra Chill Blog active and without the Users or Artist Platform plugins. The script installs deterministic doubles for those plugins' public contracts, creates temporary users/posts, exercises the security boundaries, and cleans up. It must never run against production.
+`composer test:integration` drives the actual core posts and autosaves controllers in a disposable WordPress nightly sandbox. The script installs deterministic doubles for the public owner contracts, creates temporary users/posts, exercises the security boundaries, and cleans up. It must never run against production.

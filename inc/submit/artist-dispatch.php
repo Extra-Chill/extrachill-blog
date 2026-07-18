@@ -219,7 +219,7 @@ function extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) {
 		return false;
 	}
 	$artist_ids = array_map( 'absint', (array) ec_get_artists_for_user( $submitter, false ) );
-	return in_array( $artist_id, $artist_ids, true ) && ! empty( extrachill_blog_dispatch_artist_display( $artist_id ) );
+	return in_array( $artist_id, $artist_ids, true );
 }
 
 /**
@@ -420,6 +420,24 @@ function extrachill_blog_dispatch_raw_value( $value ) {
 }
 
 /**
+ * Detect the core autosaves controller while it delegates to the posts controller.
+ *
+ * @param WP_REST_Request $request Request.
+ * @return bool Whether this is a core autosave write.
+ */
+function extrachill_blog_dispatch_is_autosave_request( $request ) {
+	if ( false !== strpos( $request->get_route(), '/autosaves' ) || ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) ) {
+		return true;
+	}
+	foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 12 ) as $frame ) { // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- core controller delegation has no public request marker.
+		if ( isset( $frame['class'] ) && WP_REST_Autosaves_Controller::class === $frame['class'] ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Acquire an atomic, short per-user operation lock.
  *
  * WordPress add_option() is an atomic database insert even without persistent object
@@ -427,38 +445,67 @@ function extrachill_blog_dispatch_raw_value( $value ) {
  *
  * @param string $operation Operation name.
  * @param int    $user_id User ID.
- * @return string|WP_Error Lock option name or conflict.
+ * @return array|WP_Error Owned lock token or conflict.
  */
 function extrachill_blog_dispatch_acquire_lock( $operation, $user_id ) {
 	$key     = 'ec_dispatch_lock_' . sanitize_key( $operation ) . '_' . absint( $user_id );
-	$expires = time() + 15;
-	$current = (int) get_option( $key, 0 );
-	if ( $current && $current < time() ) {
-		delete_option( $key );
+	$lock    = array(
+		'token'   => wp_generate_uuid4(),
+		'expires' => time() + 15,
+		'key'     => $key,
+	);
+	$current = get_option( $key, array() );
+	if ( empty( $current ) && add_option( $key, $lock, '', false ) ) {
+		$GLOBALS['extrachill_blog_dispatch_locks'][ $key ] = $lock;
+		return $lock;
 	}
-	if ( ! add_option( $key, $expires, '', false ) ) {
-		return new WP_Error( 'artist_dispatch_write_in_progress', __( 'Another Artist Dispatch request is already in progress.', 'extrachill-blog' ), array( 'status' => 409 ) );
+	if ( is_array( $current ) && ! empty( $current['expires'] ) && (int) $current['expires'] < time() ) {
+		global $wpdb;
+		$owned = false;
+		if ( isset( $wpdb->options ) ) {
+			$owned = 1 === $wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s", maybe_serialize( $lock ), $key, maybe_serialize( $current ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- atomic compare-and-swap on one owned lock option.
+			wp_cache_delete( $key, 'options' );
+		} elseif ( get_option( $key ) === $current ) {
+			update_option( $key, $lock, false );
+			$owned = true;
+		}
+		if ( $owned ) {
+			$GLOBALS['extrachill_blog_dispatch_locks'][ $key ] = $lock;
+			return $lock;
+		}
 	}
-	$GLOBALS['extrachill_blog_dispatch_locks'][ $key ] = true;
-	return $key;
+	return new WP_Error( 'artist_dispatch_write_in_progress', __( 'Another Artist Dispatch request is already in progress.', 'extrachill-blog' ), array( 'status' => 409 ) );
 }
 
 /**
  * Release one atomic operation lock.
  *
- * @param string $key Lock option name.
+ * @param array $lock Owned lock token.
  */
-function extrachill_blog_dispatch_release_lock( $key ) {
-	if ( $key ) {
-		delete_option( $key );
-		unset( $GLOBALS['extrachill_blog_dispatch_locks'][ $key ] );
+function extrachill_blog_dispatch_release_lock( $lock ) {
+	if ( ! is_array( $lock ) || empty( $lock['key'] ) || empty( $lock['token'] ) ) {
+		return;
 	}
+	$key     = $lock['key'];
+	$current = get_option( $key, array() );
+	if ( ! is_array( $current ) || ! hash_equals( (string) $lock['token'], (string) ( $current['token'] ?? '' ) ) ) {
+		unset( $GLOBALS['extrachill_blog_dispatch_locks'][ $key ] );
+		return;
+	}
+	global $wpdb;
+	if ( isset( $wpdb->options ) ) {
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", $key, maybe_serialize( $current ) ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- owner-token compare-and-delete.
+		wp_cache_delete( $key, 'options' );
+	} elseif ( get_option( $key ) === $current ) {
+		delete_option( $key );
+	}
+	unset( $GLOBALS['extrachill_blog_dispatch_locks'][ $key ] );
 }
 
 /** Release request locks if core exits before an after-insert hook. */
 function extrachill_blog_dispatch_release_request_locks() {
-	foreach ( array_keys( isset( $GLOBALS['extrachill_blog_dispatch_locks'] ) ? (array) $GLOBALS['extrachill_blog_dispatch_locks'] : array() ) as $key ) {
-		extrachill_blog_dispatch_release_lock( $key );
+	foreach ( isset( $GLOBALS['extrachill_blog_dispatch_locks'] ) ? (array) $GLOBALS['extrachill_blog_dispatch_locks'] : array() as $lock ) {
+		extrachill_blog_dispatch_release_lock( $lock );
 	}
 }
 add_action( 'shutdown', 'extrachill_blog_dispatch_release_request_locks' );
@@ -491,6 +538,9 @@ function extrachill_blog_dispatch_gate_low_level_insert( $maybe_empty, $postarr 
 	}
 	$post_id = isset( $postarr['ID'] ) ? absint( $postarr['ID'] ) : 0;
 	$status  = isset( $postarr['post_status'] ) ? $postarr['post_status'] : '';
+	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && 'future' === $status ) {
+		return true;
+	}
 	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && in_array( $status, array( 'pending', 'publish', 'future' ), true ) && ! extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) ) {
 		return true;
 	}
@@ -563,7 +613,8 @@ function extrachill_blog_dispatch_rest_pre_insert( $prepared_post, $request ) {
 	$marked      = $post_id > 0 && extrachill_blog_is_artist_dispatch( $post_id );
 	$is_editor   = extrachill_blog_dispatch_is_editor();
 	$is_create   = $creating && 'create' === $request->get_header( EXTRACHILL_BLOG_DISPATCH_CREATE_HEADER );
-	$is_autosave = false !== strpos( $request->get_route(), '/autosaves' );
+	$is_autosave = extrachill_blog_dispatch_is_autosave_request( $request );
+	$is_autosave = (bool) apply_filters( 'extrachill_blog_artist_dispatch_is_autosave_request', $is_autosave, $request );
 
 	if ( extrachill_blog_dispatch_request_has_provenance( $request ) ) {
 		return new WP_Error( 'artist_dispatch_server_owned_provenance', __( 'Artist Dispatch provenance is server-owned.', 'extrachill-blog' ), array( 'status' => 400 ) );
@@ -614,6 +665,17 @@ function extrachill_blog_dispatch_rest_pre_insert( $prepared_post, $request ) {
 	}
 
 	if ( $is_editor ) {
+		$post   = get_post( $post_id );
+		$status = isset( $prepared_post->post_status ) ? $prepared_post->post_status : $post->post_status;
+		if ( 'future' === $status ) {
+			return new WP_Error( 'artist_dispatch_scheduling_forbidden', __( 'Artist Dispatches must be published immediately through the validated editor path.', 'extrachill-blog' ), array( 'status' => 400 ) );
+		}
+		if ( 'publish' === $status ) {
+			if ( ! extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) ) {
+				return new WP_Error( 'artist_dispatch_artist_invalid', __( 'The represented artist relationship is no longer valid.', 'extrachill-blog' ), array( 'status' => 409 ) );
+			}
+			$GLOBALS['extrachill_blog_dispatch_publication_token'] = $post_id;
+		}
 		return $prepared_post;
 	}
 	$access = extrachill_blog_dispatch_access();
@@ -628,7 +690,14 @@ function extrachill_blog_dispatch_rest_pre_insert( $prepared_post, $request ) {
 	if ( ! in_array( $status, array( 'draft', 'pending' ), true ) ) {
 		return new WP_Error( 'artist_dispatch_invalid_status', __( 'Artist Dispatches can only be saved or submitted for review.', 'extrachill-blog' ), array( 'status' => 403 ) );
 	}
-	if ( ! $is_autosave ) {
+	if ( $is_autosave ) {
+		$allowed_autosave = array( 'id', 'title', 'content', 'excerpt', 'meta', 'context', '_locale' );
+		foreach ( array_keys( array_merge( $request->get_params(), $request->get_body_params() ) ) as $field ) {
+			if ( ! in_array( $field, $allowed_autosave, true ) ) {
+				return new WP_Error( 'artist_dispatch_forbidden_autosave_field', __( 'That field cannot be changed by an Artist Dispatch autosave.', 'extrachill-blog' ), array( 'status' => 400 ) );
+			}
+		}
+	} else {
 		foreach ( array( 'author', 'featured_media', 'slug', 'date', 'date_gmt', 'categories', 'tags', 'template', 'format', 'password', 'sticky' ) as $field ) {
 			if ( $request->has_param( $field ) ) {
 				return new WP_Error( 'artist_dispatch_forbidden_field', __( 'That post field is managed by the editorial team.', 'extrachill-blog' ), array( 'status' => 400 ) );
@@ -663,6 +732,62 @@ function extrachill_blog_dispatch_rest_pre_insert( $prepared_post, $request ) {
 	return $prepared_post;
 }
 add_filter( 'rest_pre_insert_post', 'extrachill_blog_dispatch_rest_pre_insert', 10, 2 );
+
+/**
+ * Reject protected autosave fields before the parent posts schema can act on them.
+ *
+ * The autosaves controller delegates preparation to the posts controller, whose
+ * broader schema includes fields that must never reach an unlocked author draft.
+ * Content and access policy still run through rest_pre_insert_post.
+ *
+ * @param mixed           $result Pre-dispatch result.
+ * @param WP_REST_Server  $server REST server.
+ * @param WP_REST_Request $request Request.
+ * @return mixed|WP_Error Original result or field error.
+ */
+function extrachill_blog_dispatch_guard_autosave_fields( $result, $server, $request ) {
+	unset( $server );
+	if ( null !== $result || ! preg_match( '#^/wp/v2/posts/(?P<id>\d+)/autosaves$#', $request->get_route(), $matches ) || ! extrachill_blog_is_artist_dispatch( absint( $matches['id'] ) ) ) {
+		return $result;
+	}
+	$allowed = array( 'id', 'title', 'content', 'excerpt', 'meta', 'context', '_locale' );
+	foreach ( array_keys( array_merge( $request->get_params(), $request->get_body_params() ) ) as $field ) {
+		if ( ! in_array( $field, $allowed, true ) ) {
+			return new WP_Error( 'artist_dispatch_forbidden_autosave_field', __( 'That field cannot be changed by an Artist Dispatch autosave.', 'extrachill-blog' ), array( 'status' => 400 ) );
+		}
+	}
+	return $result;
+}
+add_filter( 'rest_pre_dispatch', 'extrachill_blog_dispatch_guard_autosave_fields', 10, 3 );
+
+/**
+ * Roll back publication attempts that did not pass the immediate REST preflight.
+ *
+ * Core wp_publish_post() writes directly to the database before transition
+ * hooks. This earliest transition callback restores the private prior status
+ * before publication-specific hooks run. Scheduling is prohibited separately.
+ *
+ * @param string  $new_status New status.
+ * @param string  $old_status Previous status.
+ * @param WP_Post $post Post object.
+ */
+function extrachill_blog_dispatch_guard_publication_transition( $new_status, $old_status, $post ) {
+	if ( 'publish' !== $new_status || ! $post instanceof WP_Post || ! extrachill_blog_is_artist_dispatch( $post->ID ) ) {
+		return;
+	}
+	$token_valid = isset( $GLOBALS['extrachill_blog_dispatch_publication_token'] ) && (int) $GLOBALS['extrachill_blog_dispatch_publication_token'] === (int) $post->ID;
+	unset( $GLOBALS['extrachill_blog_dispatch_publication_token'] );
+	if ( $token_valid && extrachill_blog_dispatch_stored_artist_is_valid( $post->ID ) ) {
+		return;
+	}
+	global $wpdb;
+	$rollback = in_array( $old_status, array( 'draft', 'pending' ), true ) ? $old_status : 'pending';
+	$wpdb->update( $wpdb->posts, array( 'post_status' => $rollback ), array( 'ID' => $post->ID ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- immediate fail-closed rollback before publish-specific hooks.
+	clean_post_cache( $post->ID );
+	$post->post_status = $rollback;
+	wp_clear_scheduled_hook( 'publish_future_post', array( $post->ID ) );
+}
+add_action( 'transition_post_status', 'extrachill_blog_dispatch_guard_publication_transition', -9999, 3 );
 
 /**
  * Stamp trusted provenance after native draft creation.
@@ -728,7 +853,7 @@ add_filter( 'map_meta_cap', 'extrachill_blog_dispatch_map_meta_cap', 10, 4 );
  * @param WP_Post $post Post.
  */
 function extrachill_blog_dispatch_transition( $new_status, $old_status, $post ) {
-	if ( ! $post instanceof WP_Post || ! extrachill_blog_is_artist_dispatch( $post->ID ) || $new_status === $old_status ) {
+	if ( ! $post instanceof WP_Post || ! extrachill_blog_is_artist_dispatch( $post->ID ) || $new_status === $old_status || get_post_status( $post->ID ) !== $new_status ) {
 		return;
 	}
 	if ( 'pending' === $new_status && 'draft' === $old_status ) {

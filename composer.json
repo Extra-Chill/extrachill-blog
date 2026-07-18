@@ -12,6 +12,7 @@
     "scripts": {
         "lint:php": "vendor/bin/phpcs --standard=WordPress *.php inc/",
         "lint:fix": "vendor/bin/phpcbf --standard=WordPress *.php inc/",
+        "test:integration": "bash tests/run-artist-dispatch-integration.sh",
         "test": [
             "php tests/homepage-event-markets.php",
             "php tests/festival-subscriptions.php",

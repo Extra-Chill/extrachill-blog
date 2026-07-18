@@ -50,6 +50,8 @@ function update_option($key, $value) { $GLOBALS['dispatch_options'][$key] = $val
 function add_option($key, $value) { if (array_key_exists($key, $GLOBALS['dispatch_options'])) return false; $GLOBALS['dispatch_options'][$key] = $value; return true; }
 function delete_option($key) { unset($GLOBALS['dispatch_options'][$key]); return true; }
 function sanitize_key($value) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower($value)); }
+function wp_generate_uuid4() { static $uuid = 0; return '00000000-0000-4000-8000-' . str_pad((string) ++$uuid, 12, '0', STR_PAD_LEFT); }
+function maybe_serialize($value) { return serialize($value); }
 function __($text) { return $text; }
 function esc_html__($text) { return $text; }
 function esc_html($text) { return htmlspecialchars($text, ENT_QUOTES); }
@@ -161,7 +163,7 @@ $GLOBALS['extrachill_blog_dispatch_meta_write'] = 12;
 check('trusted scoped provenance writer is admitted', null === extrachill_blog_dispatch_guard_provenance_meta(null, 12, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META));
 unset($GLOBALS['extrachill_blog_dispatch_meta_write']);
 $lock = extrachill_blog_dispatch_acquire_lock('create', 7);
-check('first atomic operation lock succeeds', is_string($lock));
+check('first atomic operation lock succeeds', is_array($lock) && ! empty($lock['token']));
 check('parallel operation lock fails closed', is_wp_error(extrachill_blog_dispatch_acquire_lock('create', 7)));
 extrachill_blog_dispatch_release_lock($lock);
 

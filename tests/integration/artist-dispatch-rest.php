@@ -153,6 +153,16 @@ $autosave->set_body_params(
 );
 $autosave_response = rest_do_request( $autosave );
 ec_dispatch_integration_check( 'real core autosaves controller accepts canonical raw envelopes', 201 === $autosave_response->get_status() || 200 === $autosave_response->get_status() );
+foreach ( array( 'author' => $two_id, 'status' => 'pending', 'slug' => 'forged', 'featured_media' => 1 ) as $field => $value ) {
+	$forbidden_autosave = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $dispatch_id . '/autosaves' );
+	$forbidden_autosave->set_body_params( array( 'id' => $dispatch_id, 'content' => array( 'raw' => $valid_content ), $field => $value ) );
+	$forbidden_response = rest_do_request( $forbidden_autosave );
+	if ( 400 !== $forbidden_response->get_status() ) {
+		WP_CLI::log( "AUTOSAVE {$field} DIAGNOSTIC: " . $forbidden_response->get_status() . ' ' . wp_json_encode( $forbidden_response->get_data() ) );
+	}
+	ec_dispatch_integration_check( "autosave rejects protected {$field} field", 400 === $forbidden_response->get_status() );
+}
+add_filter( 'extrachill_blog_artist_dispatch_is_autosave_request', '__return_false' );
 
 wp_set_current_user( $two_id );
 $foreign_request = new WP_REST_Request( 'GET', '/wp/v2/posts/' . $dispatch_id );
@@ -186,8 +196,16 @@ $pending_edit->set_body_params( array( 'id' => $dispatch_id, 'title' => 'Too lat
 ec_dispatch_integration_check( 'pending Dispatch is locked to contributor edits', 403 === rest_do_request( $pending_edit )->get_status() );
 
 wp_set_current_user( $editor_id );
-$published = wp_update_post( array( 'ID' => $dispatch_id, 'post_status' => 'publish' ), true );
-ec_dispatch_integration_check( 'editor can publish while canonical relationship remains valid', ! is_wp_error( $published ) && 'publish' === get_post_status( $dispatch_id ) );
+$ec_dispatch_artists[ $one_id ] = array();
+wp_publish_post( $dispatch_id );
+ec_dispatch_integration_check( 'direct wp_publish_post rolls back when canonical relationship was removed', 'pending' === get_post_status( $dispatch_id ) );
+$ec_dispatch_artists[ $one_id ] = array( $artist_id );
+$scheduled = wp_update_post( array( 'ID' => $dispatch_id, 'post_status' => 'future', 'post_date_gmt' => gmdate( 'Y-m-d H:i:s', time() + HOUR_IN_SECONDS ) ), true );
+ec_dispatch_integration_check( 'marked Dispatch scheduling fails closed', is_wp_error( $scheduled ) && 'pending' === get_post_status( $dispatch_id ) );
+$publish_request = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $dispatch_id );
+$publish_request->set_body_params( array( 'id' => $dispatch_id, 'status' => 'publish' ) );
+$published = rest_do_request( $publish_request );
+ec_dispatch_integration_check( 'editor publishes through validated immediate REST path', 200 === $published->get_status() && 'publish' === get_post_status( $dispatch_id ) );
 wp_set_current_user( 0 );
 $public = rest_do_request( new WP_REST_Request( 'GET', '/wp/v2/posts/' . $dispatch_id ) );
 $public_meta = isset( $public->get_data()['meta'] ) ? $public->get_data()['meta'] : array();
@@ -215,6 +233,16 @@ add_filter( 'wp_insert_post_empty_content', $fail_guidelines, 100, 2 );
 ec_dispatch_integration_check( 'partial hierarchy failure stops provisioning', false === extrachill_blog_provision_submit_pages() );
 remove_filter( 'wp_insert_post_empty_content', $fail_guidelines, 100 );
 ec_dispatch_integration_check( 'failed hierarchy can retry to exact completion', true === extrachill_blog_provision_submit_pages() );
+
+$first_lock = extrachill_blog_dispatch_acquire_lock( 'race', $one_id );
+$expired_lock = $first_lock;
+$expired_lock['expires'] = time() - 1;
+update_option( $first_lock['key'], $expired_lock, false );
+$successor_lock = extrachill_blog_dispatch_acquire_lock( 'race', $one_id );
+extrachill_blog_dispatch_release_lock( $first_lock );
+ec_dispatch_integration_check( 'expired lock takeover receives a distinct owner token', is_array( $successor_lock ) && $successor_lock['token'] !== $first_lock['token'] );
+ec_dispatch_integration_check( 'stale owner release cannot delete successor lock', is_wp_error( extrachill_blog_dispatch_acquire_lock( 'race', $one_id ) ) );
+extrachill_blog_dispatch_release_lock( $successor_lock );
 
 wp_set_current_user( $editor_id );
 foreach ( array( $dispatch_id, $unmarked_id ) as $post_id ) {
