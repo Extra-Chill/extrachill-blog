@@ -44,19 +44,24 @@ function extrachill_blog_dispatch_artist_display( $artist_id ) {
  * Build the mandatory public label and first-party disclosure.
  *
  * @param int $post_id Published Dispatch ID.
- * @return string Disclosure HTML, including a safe fallback when the profile disappeared.
+ * @return string Disclosure HTML, including a safe fallback when the profile or relationship disappeared.
  */
 function extrachill_blog_dispatch_disclosure_html( $post_id ) {
 	if ( ! extrachill_blog_is_artist_dispatch( $post_id ) || 'publish' !== get_post_status( $post_id ) ) {
 		return '';
 	}
 
-	$artist = extrachill_blog_dispatch_artist_display( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, true ) );
+	$artist_id = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, true ) );
+	$submitter = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, true ) );
+	$artist    = extrachill_blog_dispatch_artist_display( $artist_id );
+	if ( ! empty( $artist ) && function_exists( 'ec_get_artists_for_user' ) && ! in_array( $artist_id, array_map( 'absint', (array) ec_get_artists_for_user( $submitter, false ) ), true ) ) {
+		$artist = array();
+	}
 	$author = get_the_author_meta( 'display_name', (int) get_post_field( 'post_author', $post_id ) );
 	if ( empty( $artist ) ) {
 		$disclosure = sprintf(
 			/* translators: %s: contributor name. */
-			esc_html__( 'A first-person story by %s, who is a member of or directly connected to the featured artist or project. The original artist profile is currently unavailable. Edited and published by Extra Chill.', 'extrachill-blog' ),
+			esc_html__( 'A first-person story by %s, who was verified as a member of or directly connected to the featured artist or project when this story was submitted. The original artist link is no longer available. Edited and published by Extra Chill.', 'extrachill-blog' ),
 			esc_html( $author )
 		);
 	} else {

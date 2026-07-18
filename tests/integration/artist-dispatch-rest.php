@@ -180,6 +180,11 @@ $ec_dispatch_access_states[ $one_id ] = $approved( $artist_id );
 $ec_dispatch_access_states[ $one_id ]['eligibility']['policy']['pilot_enabled'] = false;
 ec_dispatch_integration_check( 'disabled pilot blocks contributor writes', 403 === rest_do_request( $revoked_update )->get_status() );
 $ec_dispatch_access_states[ $one_id ] = $approved( $artist_id );
+foreach ( array( 'publish', 'future' ) as $forbidden_status ) {
+	$contributor_publication = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $dispatch_id );
+	$contributor_publication->set_body_params( array( 'id' => $dispatch_id, 'status' => $forbidden_status ) );
+	ec_dispatch_integration_check( "contributor cannot set {$forbidden_status} status", 403 === rest_do_request( $contributor_publication )->get_status() );
+}
 
 wp_set_current_user( $editor_id );
 wp_update_post( array( 'ID' => $dispatch_id, 'post_content' => '<!-- wp:image {"id":1} /-->' ) );
@@ -196,25 +201,26 @@ $pending_edit->set_body_params( array( 'id' => $dispatch_id, 'title' => 'Too lat
 ec_dispatch_integration_check( 'pending Dispatch is locked to contributor edits', 403 === rest_do_request( $pending_edit )->get_status() );
 
 wp_set_current_user( $editor_id );
+$schedule_request = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $dispatch_id );
+$schedule_request->set_body_params( array( 'id' => $dispatch_id, 'status' => 'future', 'date_gmt' => gmdate( 'c', time() + HOUR_IN_SECONDS ) ) );
+$scheduled = rest_do_request( $schedule_request );
+ec_dispatch_integration_check( 'editor owns scheduled publication after pending review', 200 === $scheduled->get_status() && 'future' === get_post_status( $dispatch_id ) );
+$return_pending = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $dispatch_id );
+$return_pending->set_body_params( array( 'id' => $dispatch_id, 'status' => 'pending', 'date_gmt' => gmdate( 'c' ) ) );
+rest_do_request( $return_pending );
 $ec_dispatch_artists[ $one_id ] = array();
-wp_publish_post( $dispatch_id );
-ec_dispatch_integration_check( 'direct wp_publish_post rolls back when canonical relationship was removed', 'pending' === get_post_status( $dispatch_id ) );
-$ec_dispatch_artists[ $one_id ] = array( $artist_id );
-$scheduled = wp_update_post( array( 'ID' => $dispatch_id, 'post_status' => 'future', 'post_date_gmt' => gmdate( 'Y-m-d H:i:s', time() + HOUR_IN_SECONDS ) ), true );
-ec_dispatch_integration_check( 'marked Dispatch scheduling fails closed', is_wp_error( $scheduled ) && 'pending' === get_post_status( $dispatch_id ) );
 $publish_request = new WP_REST_Request( 'POST', '/wp/v2/posts/' . $dispatch_id );
 $publish_request->set_body_params( array( 'id' => $dispatch_id, 'status' => 'publish' ) );
 $published = rest_do_request( $publish_request );
-ec_dispatch_integration_check( 'editor publishes through validated immediate REST path', 200 === $published->get_status() && 'publish' === get_post_status( $dispatch_id ) );
+ec_dispatch_integration_check( 'editor owns final publication after pending even if relationship later disappears', 200 === $published->get_status() && 'publish' === get_post_status( $dispatch_id ) );
 wp_set_current_user( 0 );
 $public = rest_do_request( new WP_REST_Request( 'GET', '/wp/v2/posts/' . $dispatch_id ) );
 $public_meta = isset( $public->get_data()['meta'] ) ? $public->get_data()['meta'] : array();
 ec_dispatch_integration_check( 'anonymous public REST response omits all provenance', 200 === $public->get_status() && ! array_intersect( extrachill_blog_dispatch_provenance_keys(), array_keys( $public_meta ) ) );
 
 wp_set_current_user( $editor_id );
-wp_delete_post( $artist_id, true );
 $fallback = extrachill_blog_dispatch_disclosure_html( $dispatch_id );
-ec_dispatch_integration_check( 'published disclosure survives deleted profile with safe fallback', false !== strpos( $fallback, 'Artist Dispatch' ) && false !== strpos( $fallback, 'profile is currently unavailable' ) );
+ec_dispatch_integration_check( 'published disclosure survives removed relationship with safe fallback', false !== strpos( $fallback, 'Artist Dispatch' ) && false !== strpos( $fallback, 'artist link is no longer available' ) );
 
 foreach ( array_keys( (array) get_option( EXTRACHILL_BLOG_DISPATCH_PAGES_OPTION, array() ) ) as $path ) {
 	$page = get_page_by_path( $path, OBJECT, 'page' );

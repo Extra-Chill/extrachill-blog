@@ -207,22 +207,6 @@ function extrachill_blog_dispatch_can_represent_artist( $artist_id, $access = nu
 }
 
 /**
- * Revalidate a stored submitter-to-artist relationship through its owner.
- *
- * @param int $post_id Dispatch post ID.
- * @return bool Whether the canonical relationship and profile still exist.
- */
-function extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) {
-	$submitter = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_SUBMITTER_META, true ) );
-	$artist_id = absint( get_post_meta( $post_id, EXTRACHILL_BLOG_DISPATCH_ARTIST_META, true ) );
-	if ( ! $submitter || ! $artist_id || ! function_exists( 'ec_get_artists_for_user' ) ) {
-		return false;
-	}
-	$artist_ids = array_map( 'absint', (array) ec_get_artists_for_user( $submitter, false ) );
-	return in_array( $artist_id, $artist_ids, true );
-}
-
-/**
  * Check the deployed Blocks Everywhere dependency.
  *
  * @return bool Whether the canonical editor API is available.
@@ -537,13 +521,6 @@ function extrachill_blog_dispatch_gate_low_level_insert( $maybe_empty, $postarr 
 		return $maybe_empty;
 	}
 	$post_id = isset( $postarr['ID'] ) ? absint( $postarr['ID'] ) : 0;
-	$status  = isset( $postarr['post_status'] ) ? $postarr['post_status'] : '';
-	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && 'future' === $status ) {
-		return true;
-	}
-	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && in_array( $status, array( 'pending', 'publish', 'future' ), true ) && ! extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) ) {
-		return true;
-	}
 	$context = isset( $GLOBALS['extrachill_blog_dispatch_insert_context'] ) ? $GLOBALS['extrachill_blog_dispatch_insert_context'] : array();
 	if ( $post_id && extrachill_blog_is_artist_dispatch( $post_id ) && ! extrachill_blog_dispatch_is_editor() ) {
 		if ( empty( $context ) || ! empty( $context['consumed'] ) || (int) $context['post_id'] !== $post_id ) {
@@ -665,17 +642,8 @@ function extrachill_blog_dispatch_rest_pre_insert( $prepared_post, $request ) {
 	}
 
 	if ( $is_editor ) {
-		$post   = get_post( $post_id );
-		$status = isset( $prepared_post->post_status ) ? $prepared_post->post_status : $post->post_status;
-		if ( 'future' === $status ) {
-			return new WP_Error( 'artist_dispatch_scheduling_forbidden', __( 'Artist Dispatches must be published immediately through the validated editor path.', 'extrachill-blog' ), array( 'status' => 400 ) );
-		}
-		if ( 'publish' === $status ) {
-			if ( ! extrachill_blog_dispatch_stored_artist_is_valid( $post_id ) ) {
-				return new WP_Error( 'artist_dispatch_artist_invalid', __( 'The represented artist relationship is no longer valid.', 'extrachill-blog' ), array( 'status' => 409 ) );
-			}
-			$GLOBALS['extrachill_blog_dispatch_publication_token'] = $post_id;
-		}
+		// Affiliation is required when the contributor enters pending review.
+		// Editors own the final immediate or scheduled publication decision.
 		return $prepared_post;
 	}
 	$access = extrachill_blog_dispatch_access();
@@ -759,35 +727,6 @@ function extrachill_blog_dispatch_guard_autosave_fields( $result, $server, $requ
 	return $result;
 }
 add_filter( 'rest_pre_dispatch', 'extrachill_blog_dispatch_guard_autosave_fields', 10, 3 );
-
-/**
- * Roll back publication attempts that did not pass the immediate REST preflight.
- *
- * Core wp_publish_post() writes directly to the database before transition
- * hooks. This earliest transition callback restores the private prior status
- * before publication-specific hooks run. Scheduling is prohibited separately.
- *
- * @param string  $new_status New status.
- * @param string  $old_status Previous status.
- * @param WP_Post $post Post object.
- */
-function extrachill_blog_dispatch_guard_publication_transition( $new_status, $old_status, $post ) {
-	if ( 'publish' !== $new_status || ! $post instanceof WP_Post || ! extrachill_blog_is_artist_dispatch( $post->ID ) ) {
-		return;
-	}
-	$token_valid = isset( $GLOBALS['extrachill_blog_dispatch_publication_token'] ) && (int) $GLOBALS['extrachill_blog_dispatch_publication_token'] === (int) $post->ID;
-	unset( $GLOBALS['extrachill_blog_dispatch_publication_token'] );
-	if ( $token_valid && extrachill_blog_dispatch_stored_artist_is_valid( $post->ID ) ) {
-		return;
-	}
-	global $wpdb;
-	$rollback = in_array( $old_status, array( 'draft', 'pending' ), true ) ? $old_status : 'pending';
-	$wpdb->update( $wpdb->posts, array( 'post_status' => $rollback ), array( 'ID' => $post->ID ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- immediate fail-closed rollback before publish-specific hooks.
-	clean_post_cache( $post->ID );
-	$post->post_status = $rollback;
-	wp_clear_scheduled_hook( 'publish_future_post', array( $post->ID ) );
-}
-add_action( 'transition_post_status', 'extrachill_blog_dispatch_guard_publication_transition', -9999, 3 );
 
 /**
  * Stamp trusted provenance after native draft creation.
