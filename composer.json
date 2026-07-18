@@ -18,6 +18,7 @@
             "php tests/artist-activity.php",
             "php tests/newsletter-context.php",
             "php tests/network-bridge.php",
+            "node tests/geographic-bridge-experiment.js",
             "@lint:php"
         ]
     },
