@@ -515,22 +515,6 @@ function extrachill_blog_render_artist_coverage_heading() {
 }
 add_action( 'extrachill_archive_above_posts', 'extrachill_blog_render_artist_coverage_heading', 20 );
 
-/**
- * Register artist email sharing independently from artist notifications.
- *
- * @param array $entities Entity identity definitions.
- * @return array
- */
-function extrachill_blog_register_artist_email_sharing_identity( $entities ) {
-	$entities['artist-email-sharing'] = array(
-		'taxonomy'                           => 'artist',
-		'uses_notification_email_preference' => false,
-	);
-
-	return $entities;
-}
-add_filter( 'extrachill_users_entity_subscription_entities', 'extrachill_blog_register_artist_email_sharing_identity' );
-
 /** Render account-owned artist preferences. */
 function extrachill_blog_render_artist_subscription_control() {
 	if ( ! extrachill_blog_is_artist_pillar() || is_paged() ) {
