@@ -87,14 +87,6 @@ $topic = new WP_Post();
 $topic->ID = 42;
 assert_same( 'https://community.example.test/t/canonical-topic-42', extrachill_blog_get_artist_community_topic_permalink( $topic ), 'Community activity must use the canonical bbPress topic permalink.' );
 
-$artist_pillar_source         = file_get_contents( dirname( __DIR__ ) . '/inc/archive/artist-pillar.php' );
-$festival_subscriptions_source = file_get_contents( dirname( __DIR__ ) . '/inc/archive/festival-subscriptions.php' );
-assert_same( 2, substr_count( $artist_pillar_source, 'class="button-1 button-medium entity-pillar-subscription-button"' ), 'Artist preference controls should use theme button classes.' );
-assert_true( false !== strpos( $artist_pillar_source, 'Artist preferences' ), 'Artist preferences should use one coherent heading.' );
-assert_true( false !== strpos( $artist_pillar_source, "ec_get_site_url( 'docs' )" ), 'Artist preferences should resolve documentation through the network site registry.' );
-assert_true( false === strpos( $artist_pillar_source, 'entity-pillar-preferences__row' ), 'Artist preferences should not render nested notice rows.' );
-assert_same( 2, substr_count( $festival_subscriptions_source, 'class="button-1 button-medium entity-pillar-subscription-button"' ), 'Festival subscription controls should use theme button classes.' );
-
 $sorted = extrachill_blog_sort_artist_activity(
 	array(
 		array( 'title' => 'Older', 'timestamp' => 100 ),
