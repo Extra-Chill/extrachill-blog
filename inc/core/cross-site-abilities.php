@@ -49,6 +49,7 @@ function extrachill_blog_request_cross_site_ability( $site_key, $ability_name, $
  * Validate the shared versioned envelope used by activity owners.
  *
  * @param mixed $result Owner response.
+ * @phpstan-assert-if-true array{schema_version: string, items: array} $result
  * @return bool
  */
 function extrachill_blog_is_activity_projection( $result ) {
