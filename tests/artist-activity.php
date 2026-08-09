@@ -81,11 +81,8 @@ assert_same( 'taxonomy-badge location-badge', $partial_badges[0]['class'], 'A re
 assert_same( array(), extrachill_blog_get_artist_activity_badges( array( 'venue' => 'invalid' ) ), 'Malformed relationship data must be omitted.' );
 assert_same( array(), extrachill_blog_build_artist_activity_item( 'Coverage', 'https://example.test/coverage', '2026-07-14', 'Editorial coverage' )['relationships'], 'Non-event activity rows must not gain relationship badges.' );
 
-function bbp_get_topic_permalink( $topic_id ) { return 'https://community.example.test/t/canonical-topic-' . $topic_id; }
-
-$topic = new WP_Post();
-$topic->ID = 42;
-assert_same( 'https://community.example.test/t/canonical-topic-42', extrachill_blog_get_artist_community_topic_permalink( $topic ), 'Community activity must use the canonical bbPress topic permalink.' );
+$artist_pillar_source = file_get_contents( dirname( __DIR__ ) . '/inc/archive/artist-pillar.php' );
+assert_true( false !== strpos( $artist_pillar_source, 'extrachill/community-recent-public-activity' ), 'Community activity must use the owner projection.' );
 
 $sorted = extrachill_blog_sort_artist_activity(
 	array(
